@@ -12,8 +12,8 @@
   "app": {
     "windows": [
       {
-        "label": "main",
-        "title": "tauri-livekit-with-custom-sharescreen-ui",
+        "url": "#/meeting",
+        "title": "LiveKit Meeting",
         "width": 480,
         "height": 600,
         "closable": false,
@@ -21,15 +21,13 @@
         "minimizable": false,
         "resizable": false,
         "transparent": true,
-        "decorations": true,
-        "shadow": false,
-        "windowEffects": {
-          "effects": ["mica", "blur", "acrylic"]
-        }
+        "decorations": false,
+        "shadow": false
       }
     ],
     "security": {
-      "csp": null
+      "dangerousDisableAssetCspModification": true,
+      "csp": "default-src * asset:; script-src * 'unsafe-inline' 'unsafe-eval' http: https: asset://localhost/; style-src * 'unsafe-inline' http: https: asset://localhost/; img-src * data: blob:; connect-src * ws: wss: http: https: asset://localhost/ blob:; media-src * blob:;"
     }
   },
   "bundle": {

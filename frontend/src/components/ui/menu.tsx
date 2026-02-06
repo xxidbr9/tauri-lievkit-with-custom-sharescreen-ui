@@ -4,7 +4,8 @@ import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { ChevronRightIcon } from "lucide-react";
 import type * as React from "react";
 import { cn } from "@/lib/utils";
-
+import { motion, type Variants } from "motion/react";
+import { Kbd } from "./kbd";
 const MenuCreateHandle = MenuPrimitive.createHandle;
 
 const Menu = MenuPrimitive.Root;
@@ -29,6 +30,30 @@ function MenuPopup({
   alignOffset?: MenuPrimitive.Positioner.Props["alignOffset"];
   side?: MenuPrimitive.Positioner.Props["side"];
 }) {
+  const isBottom = side === "bottom";
+  const variants: Variants = {
+    hidden: {
+      opacity: 0,
+      y: isBottom ? 8 : -8,
+    },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: {
+        duration: 0.2,
+        ease: "easeOut",
+      },
+    },
+    exit: {
+      opacity: 0,
+      y: isBottom ? 8 : -8,
+      transition: {
+        duration: 0.15,
+        ease: "easeIn",
+      },
+    },
+  } as const;
+
   return (
     <MenuPrimitive.Portal>
       <MenuPrimitive.Positioner
@@ -39,18 +64,25 @@ function MenuPopup({
         side={side}
         sideOffset={sideOffset}
       >
-        <MenuPrimitive.Popup
-          className={cn(
-            "relative flex not-[class*='w-']:min-w-32 origin-(--transform-origin) rounded-lg border bg-popover not-dark:bg-clip-padding shadow-lg/5 outline-none before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] focus:outline-none dark:before:shadow-[0_-1px_--theme(--color-white/6%)]",
-            className,
-          )}
-          data-slot="menu-popup"
-          {...props}
+        <motion.div
+          initial="hidden"
+          animate="visible"
+          exit="exit"
+          variants={variants}
         >
-          <div className="max-h-(--available-height) w-full overflow-y-auto p-1">
-            {children}
-          </div>
-        </MenuPrimitive.Popup>
+          <MenuPrimitive.Popup
+            className={cn(
+              "relative flex not-[class*='w-']:min-w-32 origin-(--transform-origin) rounded-lg border bg-popover not-dark:bg-clip-padding shadow-lg/5 outline-none before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] focus:outline-none dark:before:shadow-[0_-1px_--theme(--color-white/6%)]",
+              className,
+            )}
+            data-slot="menu-popup"
+            {...props}
+          >
+            <div className="max-h-(--available-height) w-full overflow-y-auto p-1">
+              {children}
+            </div>
+          </MenuPrimitive.Popup>
+        </motion.div>
       </MenuPrimitive.Positioner>
     </MenuPrimitive.Portal>
   );
@@ -209,7 +241,7 @@ function MenuSeparator({ className, ...props }: MenuPrimitive.Separator.Props) {
 
 function MenuShortcut({ className, ...props }: React.ComponentProps<"kbd">) {
   return (
-    <kbd
+    <Kbd
       className={cn(
         "ms-auto font-medium font-sans text-muted-foreground/72 text-xs tracking-widest",
         className,
@@ -276,35 +308,35 @@ function MenuSubPopup({
 
 export {
   MenuCreateHandle,
-  MenuCreateHandle as DropdownMenuCreateHandle,
   Menu,
-  Menu as DropdownMenu,
   MenuPortal,
-  MenuPortal as DropdownMenuPortal,
   MenuTrigger,
-  MenuTrigger as DropdownMenuTrigger,
   MenuPopup,
-  MenuPopup as DropdownMenuContent,
   MenuGroup,
-  MenuGroup as DropdownMenuGroup,
   MenuItem,
-  MenuItem as DropdownMenuItem,
   MenuCheckboxItem,
-  MenuCheckboxItem as DropdownMenuCheckboxItem,
   MenuRadioGroup,
-  MenuRadioGroup as DropdownMenuRadioGroup,
   MenuRadioItem,
-  MenuRadioItem as DropdownMenuRadioItem,
   MenuGroupLabel,
-  MenuGroupLabel as DropdownMenuLabel,
   MenuSeparator,
-  MenuSeparator as DropdownMenuSeparator,
   MenuShortcut,
-  MenuShortcut as DropdownMenuShortcut,
   MenuSub,
-  MenuSub as DropdownMenuSub,
   MenuSubTrigger,
-  MenuSubTrigger as DropdownMenuSubTrigger,
   MenuSubPopup,
+  MenuCreateHandle as DropdownMenuCreateHandle,
+  Menu as DropdownMenu,
+  MenuPortal as DropdownMenuPortal,
+  MenuTrigger as DropdownMenuTrigger,
+  MenuPopup as DropdownMenuContent,
+  MenuGroup as DropdownMenuGroup,
+  MenuItem as DropdownMenuItem,
+  MenuCheckboxItem as DropdownMenuCheckboxItem,
+  MenuRadioGroup as DropdownMenuRadioGroup,
+  MenuRadioItem as DropdownMenuRadioItem,
+  MenuGroupLabel as DropdownMenuLabel,
+  MenuSeparator as DropdownMenuSeparator,
+  MenuShortcut as DropdownMenuShortcut,
+  MenuSub as DropdownMenuSub,
+  MenuSubTrigger as DropdownMenuSubTrigger,
   MenuSubPopup as DropdownMenuSubContent,
 };

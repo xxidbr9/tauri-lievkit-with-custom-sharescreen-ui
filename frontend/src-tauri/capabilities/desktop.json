@@ -1,0 +1,14 @@
+{
+  "identifier": "desktop-capability",
+  "platforms": ["macOS", "windows", "linux"],
+  "windows": ["main"],
+  "permissions": [
+    "autostart:default",
+    "core:window:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize",
+    "autostart:allow-is-enabled",
+    "fs:default",
+    "process:default"
+  ]
+}

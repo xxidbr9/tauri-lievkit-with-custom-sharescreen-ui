@@ -27,9 +27,10 @@ pub fn setup(app: &tauri::App) {
         let work_width = (rect.right - rect.left) as u32;
 
         // let current_size = app_window.inner_size().unwrap();
+        // NOTE: windows are not count the screen properly if you include decorations
         let height = work_height - margin * 2;
 
-        // TODO:
+        // TODO: this is my phone
         let width = ((height as f64) * (9.0 / 19.5)).round() as u32;
         // let width = 400 as u32;
         let x = (work_width - (width + margin)) as i32;

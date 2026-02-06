@@ -7,17 +7,16 @@
 
 mod app_window;
 mod sharescreen;
-// #[cfg(target_os = "windows")]
-// use tauri::utils::config::WindowEffectsConfig;
-// use tauri::Manager;
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
+mod tray;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_autostart::Builder::new().build())
         .on_window_event(|_window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
@@ -25,13 +24,11 @@ pub fn run() {
         })
         .setup(|app| {
             app_window::setup_window::setup(&app);
-
+            let _ = tray::setup_tray(&app);
             Ok(())
         })
-        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            greet,
-            sharescreen::get_windows::get_list
+            // sharescreen::get_windows::get_list
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

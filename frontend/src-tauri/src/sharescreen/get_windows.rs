@@ -8,19 +8,12 @@ use windows::Win32::{
 };
 use windows_core::BOOL;
 
-use crate::sharescreen::{draw_overlay, dto::MonitorRect};
+use crate::sharescreen::{
+    draw_overlay,
+    dto::{DisplayInfo, MonitorRect},
+};
 // Global mutable to store the current Tauri window handle
 static mut MAIN_HWND: HWND = HWND(std::ptr::null_mut());
-
-#[derive(Debug)]
-struct DisplayInfo {
-    hwnd: HWND,
-    handle: isize,
-    title: String,
-    class_name: String,
-    rect: RECT,
-    is_capturable: bool,
-}
 
 unsafe extern "system" fn enum_windows_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
     unsafe {
@@ -175,89 +168,99 @@ unsafe extern "system" fn monitor_enum_proc(
 }
 
 #[tauri::command]
-pub fn get_list(window: Window) {
-    let tauri_hwnd = window.hwnd().expect("Failed to get HWND");
-
-    unsafe {
-        MAIN_HWND = tauri_hwnd;
-    }
-
-    // TODO: get rect size
-    println!("=== MONITORS ===");
-    let monitors = get_monitors();
-    for (idx, (name, handle)) in monitors.iter().enumerate() {
-        println!("Monitor {}: {} (Handle: {:?})", idx + 1, name, handle);
-    }
-
-    // TODO: draw full screen
-    // NOTE: this track run not on main thread
-    std::thread::spawn(|| unsafe {
-        let monitors = get_monitors();
-        if let Some((_, hmonitor)) = monitors.get(0) {
-            if !hmonitor.is_invalid() {
-                draw_overlay::track_monitor(*hmonitor);
-            } else {
-                eprintln!("Invalid monitor handle, skipping overlay.");
-            }
-        } else {
-            eprintln!("No monitors found, skipping overlay.");
-        }
-    });
-
-    println!("\n=== WINDOWS ===");
-    let mut windows: Vec<DisplayInfo> = Vec::new();
-
-    unsafe {
-        let _ = EnumWindows(
-            Some(enum_windows_callback),
-            LPARAM(&mut windows as *mut _ as isize),
-        );
-    }
-
-    for (idx, win) in windows.iter().enumerate() {
-        println!(
-            "Window {}: \"{}\" | Class: {} | Handle: {} | Capturable: {} | Rect: ({},{}) {}x{}",
-            idx + 1,
-            win.title,
-            win.class_name,
-            win.handle,
-            win.is_capturable,
-            win.rect.left,
-            win.rect.top,
-            win.rect.right - win.rect.left,
-            win.rect.bottom - win.rect.top
-        );
-    }
-
-    println!("\n=== CAPTURABLE WINDOWS ONLY ===");
-    let capturable: Vec<_> = windows.iter().filter(|w| w.is_capturable).collect();
-    for (idx, win) in capturable.iter().enumerate() {
-        println!(
-            "Window {}: \"{}\" | Class: {} | Handle: {} | Rect: ({},{}) {}x{}",
-            idx + 1,
-            win.title,
-            win.class_name,
-            win.handle,
-            win.rect.left,
-            win.rect.top,
-            win.rect.right - win.rect.left,
-            win.rect.bottom - win.rect.top
-        );
-    }
-    let capturable_handles: Vec<isize> = windows
-        .iter()
-        .filter(|w| w.is_capturable)
-        .map(|w| w.hwnd.0 as isize)
-        .collect();
-    let hwnd_to_track = capturable_handles.get(0).copied();
-    std::thread::spawn(move || unsafe {
-        if let Some(handle) = hwnd_to_track {
-            let hwnd = HWND(handle as *mut _);
-            draw_overlay::track_window(hwnd);
-        }
-    });
-
-    // unsafe {
-    //     draw_overlay::track_window(capturable[0].hwnd);
-    // }
+pub fn stream_list() {
+    // TODO
 }
+
+#[tauri::command]
+pub fn close_stream_list() {
+    // TODO
+}
+
+// #[tauri::command]
+// pub fn get_list(window: Window) {
+//     let tauri_hwnd = window.hwnd().expect("Failed to get HWND");
+
+//     unsafe {
+//         MAIN_HWND = tauri_hwnd;
+//     }
+
+//     // TODO: get rect size
+//     println!("=== MONITORS ===");
+//     let monitors = get_monitors();
+//     for (idx, (name, handle)) in monitors.iter().enumerate() {
+//         println!("Monitor {}: {} (Handle: {:?})", idx + 1, name, handle);
+//     }
+
+//     // TODO: draw full screen
+//     // NOTE: this track run not on main thread
+//     std::thread::spawn(|| unsafe {
+//         let monitors = get_monitors();
+//         if let Some((_, hmonitor)) = monitors.get(0) {
+//             if !hmonitor.is_invalid() {
+//                 draw_overlay::track_monitor(*hmonitor);
+//             } else {
+//                 eprintln!("Invalid monitor handle, skipping overlay.");
+//             }
+//         } else {
+//             eprintln!("No monitors found, skipping overlay.");
+//         }
+//     });
+
+//     println!("\n=== WINDOWS ===");
+//     let mut windows: Vec<DisplayInfo> = Vec::new();
+
+//     unsafe {
+//         let _ = EnumWindows(
+//             Some(enum_windows_callback),
+//             LPARAM(&mut windows as *mut _ as isize),
+//         );
+//     }
+
+//     for (idx, win) in windows.iter().enumerate() {
+//         println!(
+//             "Window {}: \"{}\" | Class: {} | Handle: {} | Capturable: {} | Rect: ({},{}) {}x{}",
+//             idx + 1,
+//             win.title,
+//             win.class_name,
+//             win.handle,
+//             win.is_capturable,
+//             win.rect.left,
+//             win.rect.top,
+//             win.rect.right - win.rect.left,
+//             win.rect.bottom - win.rect.top
+//         );
+//     }
+
+//     println!("\n=== CAPTURABLE WINDOWS ONLY ===");
+//     let capturable: Vec<_> = windows.iter().filter(|w| w.is_capturable).collect();
+//     for (idx, win) in capturable.iter().enumerate() {
+//         println!(
+//             "Window {}: \"{}\" | Class: {} | Handle: {} | Rect: ({},{}) {}x{}",
+//             idx + 1,
+//             win.title,
+//             win.class_name,
+//             win.handle,
+//             win.rect.left,
+//             win.rect.top,
+//             win.rect.right - win.rect.left,
+//             win.rect.bottom - win.rect.top
+//         );
+//     }
+//     let capturable_handles: Vec<isize> = windows
+//         .iter()
+//         .filter(|w| w.is_capturable)
+//         .map(|w| w.hwnd.0 as isize)
+//         .collect();
+//     let hwnd_to_track = capturable_handles.get(0).copied();
+//     std::thread::spawn(move || unsafe {
+//         if let Some(handle) = hwnd_to_track {
+//             let hwnd = HWND(handle as *mut _);
+//             draw_overlay::track_window(hwnd);
+//         }
+//     });
+
+//     // unsafe {
+//     //     draw_overlay::track_window(capturable[0].hwnd);
+//     // }
+// }

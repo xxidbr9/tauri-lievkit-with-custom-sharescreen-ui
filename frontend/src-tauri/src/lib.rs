@@ -34,7 +34,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            // sharescreen::get_windows::get_list
+            sharescreen::get_windows::get_list,
             risk_command,
             panic_test
         ])

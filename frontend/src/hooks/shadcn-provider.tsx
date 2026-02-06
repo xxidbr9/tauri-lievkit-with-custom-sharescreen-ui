@@ -17,7 +17,7 @@ const ShadcnProvider = ({ children }: Props) => {
     <TooltipProvider>
       {children}
       {/* @ts-ignore */}
-      <Toaster />
+      <Toaster closeButton />
     </TooltipProvider>
   );
 };

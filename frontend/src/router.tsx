@@ -91,6 +91,10 @@ const panicTest = async () => {
   await invoke("panic_test");
 };
 
+const testScreen = async () => {
+  await invoke("get_list");
+};
+
 const meetingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/meeting",
@@ -104,22 +108,30 @@ const meetingRoute = createRoute({
         <DropdownMenuDemo />
       </FrameHeader>
       <FramePanel className="flex-1">
-        <Tooltip>
-          <TooltipTrigger
-            render={<Button onClick={triggerError}>Risky Error</Button>}
-          />
-          <TooltipContent>Risky Error</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button variant={"destructive"} onClick={panicTest}>
-                Panis Test
-              </Button>
-            }
-          />
-          <TooltipContent>Panic Test</TooltipContent>
-        </Tooltip>
+        <div className="flex flex-col gap-y-2">
+          <Tooltip>
+            <TooltipTrigger
+              render={<Button onClick={triggerError}>Risky Error</Button>}
+            />
+            <TooltipContent>Risky Error</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button variant={"destructive"} onClick={panicTest}>
+                  Panic Test
+                </Button>
+              }
+            />
+            <TooltipContent>Panic Test</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={<Button onClick={testScreen}>Screen Share Test</Button>}
+            />
+            <TooltipContent>Screen Share Test</TooltipContent>
+          </Tooltip>
+        </div>
         {/*<h2 className="font-semibold text-sm">Section title</h2>
         <p className="text-muted-foreground text-sm">Section description</p>*/}
       </FramePanel>

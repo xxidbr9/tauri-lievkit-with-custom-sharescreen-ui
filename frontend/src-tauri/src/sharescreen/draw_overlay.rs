@@ -1,4 +1,4 @@
-use std::{ptr, thread, time::Duration};
+use std::{panic::AssertUnwindSafe, ptr, thread, time::Duration};
 use windows::Win32::{
     Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM},
     Graphics::Gdi::{
@@ -86,10 +86,13 @@ pub unsafe fn create_overlay(left: i32, top: i32, width: i32, height: i32) -> HW
     hwnd
 }
 
-// TODO: error handling
-pub unsafe fn track_window(hwnd_target: HWND) {
+unsafe fn run_tracking_loop(hwnd_target: HWND) {
     let mut rect = RECT::default();
-    GetWindowRect(hwnd_target, &mut rect).unwrap();
+
+    if GetWindowRect(hwnd_target, &mut rect).is_err() {
+        eprintln!("GetWindowRect failed at start");
+        return;
+    }
 
     let hwnd_overlay = create_overlay(
         rect.left,
@@ -99,26 +102,44 @@ pub unsafe fn track_window(hwnd_target: HWND) {
     );
 
     loop {
-        if GetWindowRect(hwnd_target, &mut rect).is_ok() {
-            let width = rect.right - rect.left;
-            let height = rect.bottom - rect.top;
+        let step = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            if GetWindowRect(hwnd_target, &mut rect).is_ok() {
+                let width = rect.right - rect.left;
+                let height = rect.bottom - rect.top;
 
-            let _ = SetWindowPos(
-                hwnd_overlay,
-                Some(HWND_TOPMOST),
-                rect.left,
-                rect.top,
-                width,
-                height,
-                SWP_NOACTIVATE | SWP_SHOWWINDOW,
-            );
+                if width <= 0 || height <= 0 {
+                    return;
+                }
 
-            let _ = InvalidateRect(Some(hwnd_overlay), None, true);
+                let _ = SetWindowPos(
+                    hwnd_overlay,
+                    Some(HWND_TOPMOST),
+                    rect.left,
+                    rect.top,
+                    width,
+                    height,
+                    SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                );
 
-            draw_border(hwnd_overlay, width, height, COLORREF(0x81B910), 4);
+                let _ = InvalidateRect(Some(hwnd_overlay), None, true);
+
+                draw_border(hwnd_overlay, width, height, COLORREF(0x81B910), 4);
+            }
+        }));
+
+        if step.is_err() {
+            eprintln!("track_window loop panic recovered");
         }
+
         thread::sleep(Duration::from_millis(50));
     }
+}
+
+// TODO: error handling
+pub unsafe fn track_window(hwnd_target: HWND) {
+    let _ = std::panic::catch_unwind(AssertUnwindSafe(|| {
+        run_tracking_loop(hwnd_target);
+    }));
 }
 
 fn get_monitor_rect(hmonitor: HMONITOR) -> Option<MonitorRect> {

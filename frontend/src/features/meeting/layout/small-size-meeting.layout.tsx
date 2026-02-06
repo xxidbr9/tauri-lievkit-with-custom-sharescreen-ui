@@ -85,8 +85,26 @@ const closeStreamList = async () => {
 
 export const SmallSizeMeetingLayout = () => {
   useEffect(() => {
+    let frameCount = 0;
+    let lastTime = Date.now();
+
     const unlisten = listen("share-screen-list", (data: any) => {
-      console.log({ response: data.payload });
+      frameCount++;
+      const currentTime = Date.now();
+      const elapsed = currentTime - lastTime;
+
+      // Calculate FPS every second
+      if (elapsed >= 1000) {
+        const actualFPS = Math.round((frameCount * 1000) / elapsed);
+        console.log({
+          actualFPS,
+          backendReportedFPS: data.payload.fps,
+          payload: data.payload.sources,
+        });
+
+        frameCount = 0;
+        lastTime = currentTime;
+      }
     });
 
     return () => {

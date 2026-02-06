@@ -1,5 +1,8 @@
+use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
-
+use fast_image_resize::images::Image;
+use fast_image_resize::{IntoImageView, PixelType, Resizer};
+use image::{codecs::jpeg::JpegEncoder, ImageBuffer, RgbaImage};
 use windows::Win32::{
     Foundation::{HWND, LPARAM, RECT, WPARAM},
     Graphics::Gdi::*,
@@ -47,17 +50,22 @@ pub fn capture_app_window(hwnd: HWND, max_width: i32, max_height: i32) -> Option
         let old_bitmap = SelectObject(hdc_mem, hbitmap.into());
 
         // Use PrintWindow instead of BitBlt
-        let ok = PrintWindow(hwnd, hdc_mem, PW_RENDERFULLCONTENT).as_bool();
-        if !ok {
-            SelectObject(hdc_mem, old_bitmap);
-            let _ = DeleteObject(hbitmap.into());
-            let _ = DeleteDC(hdc_mem);
-            let _ = ReleaseDC(None, hdc_screen);
-            return None;
-        }
+        // TODO: this slowing the process
+        // let ok = PrintWindow(hwnd, hdc_mem, PW_RENDERFULLCONTENT).as_bool();
+        // if !ok {
+        //     SelectObject(hdc_mem, old_bitmap);
+        //     let _ = DeleteObject(hbitmap.into());
+        //     let _ = DeleteDC(hdc_mem);
+        //     let _ = ReleaseDC(None, hdc_screen);
+        //     return None;
+        // }
 
-        let base64_data =
-            bitmap_to_base64_png_resized(hbitmap, orig_width, orig_height, thumb_w, thumb_h);
+        // TODO: this is also slowing the process
+        // let base64_data =
+        //     bitmap_to_base64_png_resized(hbitmap, orig_width, orig_height, thumb_w, thumb_h);
+
+        let base64_data = Some("".to_string());
+        // let base64_data = bitmap_to_base64_png(hbitmap, orig_width, orig_height);
 
         SelectObject(hdc_mem, old_bitmap);
         let _ = DeleteObject(hbitmap.into());
@@ -110,29 +118,33 @@ pub fn capture_monitor_display(
         let hbitmap = CreateCompatibleBitmap(hdc_screen, orig_width, orig_height);
         let old_bitmap = SelectObject(hdc_mem, hbitmap.into());
 
-        let ok = BitBlt(
-            hdc_mem,
-            0,
-            0,
-            orig_width,
-            orig_height,
-            Some(hdc_screen),
-            rect.left,
-            rect.top,
-            SRCCOPY | CAPTUREBLT,
-        )
-        .is_ok();
+        // TODO: this slowing the process
+        // let ok = BitBlt(
+        //     hdc_mem,
+        //     0,
+        //     0,
+        //     orig_width,
+        //     orig_height,
+        //     Some(hdc_screen),
+        //     rect.left,
+        //     rect.top,
+        //     SRCCOPY | CAPTUREBLT,
+        // )
+        // .is_ok();
 
-        if !ok {
-            SelectObject(hdc_mem, old_bitmap);
-            let _ = DeleteObject(hbitmap.into());
-            let _ = DeleteDC(hdc_mem);
-            let _ = ReleaseDC(None, hdc_screen);
-            return None;
-        }
+        // if !ok {
+        //     SelectObject(hdc_mem, old_bitmap);
+        //     let _ = DeleteObject(hbitmap.into());
+        //     let _ = DeleteDC(hdc_mem);
+        //     let _ = ReleaseDC(None, hdc_screen);
+        //     return None;
+        // }
 
-        let base64_data =
-            bitmap_to_base64_png_resized(hbitmap, orig_width, orig_height, thumb_w, thumb_h);
+        // TODO: this is also slowing the process
+        // let base64_data =
+        //     bitmap_to_base64_png_resized(hbitmap, orig_width, orig_height, thumb_w, thumb_h);
+        let base64_data = Some("".to_string());
+        // let base64_data = bitmap_to_base64_png(hbitmap, orig_width, orig_height);
 
         SelectObject(hdc_mem, old_bitmap);
         let _ = DeleteObject(hbitmap.into());
@@ -209,7 +221,7 @@ pub fn bitmap_to_base64_png_resized(
             bmiHeader: BITMAPINFOHEADER {
                 biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
                 biWidth: orig_width,
-                biHeight: -orig_height, // top-down
+                biHeight: -orig_height,
                 biPlanes: 1,
                 biBitCount: 32,
                 biCompression: BI_RGB.0 as u32,
@@ -233,37 +245,42 @@ pub fn bitmap_to_base64_png_resized(
 
         let _ = DeleteDC(hdc);
 
-        // Convert BGRA to RGBA
+        // Convert BGRA to RGBA for fast_image_resize
         for chunk in pixels.chunks_exact_mut(4) {
             chunk.swap(0, 2);
         }
 
-        // Resize pixel buffer manually
-        let mut resized_pixels = vec![0u8; (width * height * 4) as usize];
-        for y in 0..height {
-            for x in 0..width {
-                let src_x = x * orig_width / width;
-                let src_y = y * orig_height / height;
-                let src_idx = ((src_y * orig_width + src_x) * 4) as usize;
-                let dst_idx = ((y * width + x) * 4) as usize;
-                resized_pixels[dst_idx..dst_idx + 4].copy_from_slice(&pixels[src_idx..src_idx + 4]);
-            }
-        }
+        // Use fast_image_resize for SIMD-accelerated scaling
+        let src_image = Image::from_vec_u8(
+            orig_width as u32,
+            orig_height as u32,
+            pixels,
+            PixelType::U8x4,
+        )
+        .ok()?;
 
-        // Encode PNG
-        let mut png_data = Vec::new();
-        {
-            let mut encoder = png::Encoder::new(&mut png_data, width as u32, height as u32);
-            encoder.set_color(png::ColorType::Rgba);
-            encoder.set_depth(png::BitDepth::Eight);
+        let mut dst_image = Image::new(width as u32, height as u32, PixelType::U8x3);
 
-            let mut writer = encoder.write_header().ok()?;
-            writer.write_image_data(&resized_pixels).ok()?;
-        }
+        let mut resizer = Resizer::new();
+        resizer.resize(&src_image, &mut dst_image, None).ok()?;
+
+        let rgb_pixels = dst_image.buffer();
+
+        // Encode to JPEG
+        let mut jpeg_data = Vec::new();
+        let mut encoder = JpegEncoder::new_with_quality(&mut jpeg_data, 80);
+        encoder
+            .encode(
+                rgb_pixels,
+                width as u32,
+                height as u32,
+                image::ExtendedColorType::Rgb8,
+            )
+            .ok()?;
 
         Some(format!(
-            "data:image/png;base64,{}",
-            general_purpose::STANDARD.encode(&png_data)
+            "data:image/jpeg;base64,{}",
+            general_purpose::STANDARD.encode(&jpeg_data)
         ))
     }
 }

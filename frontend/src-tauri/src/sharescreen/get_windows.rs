@@ -1,6 +1,12 @@
 use std::{sync::Arc, time::Duration};
 
+use crate::sharescreen::{
+    capturer::{capture_app_window, capture_monitor_display, get_window_icon},
+    draw_overlay,
+    dto::{CaptureSource, DisplayInfo, MonitorInfo, MonitorRect, SourcesUpdate},
+};
 use dashmap::DashMap;
+use rayon::prelude::*;
 use tauri::{AppHandle, Emitter, Window};
 use windows::Win32::{
     Foundation::{HWND, LPARAM, RECT},
@@ -11,11 +17,6 @@ use windows::Win32::{
 };
 use windows_core::BOOL;
 
-use crate::sharescreen::{
-    capturer::{capture_app_window, capture_monitor_display, get_window_icon},
-    draw_overlay,
-    dto::{CaptureSource, DisplayInfo, MonitorInfo, MonitorRect, SourcesUpdate},
-};
 // Global mutable to store the current Tauri window handle
 static mut MAIN_HWND: HWND = HWND(std::ptr::null_mut());
 lazy_static::lazy_static! {
@@ -240,62 +241,93 @@ pub fn stream_list(window: Window, app: AppHandle, fps: Option<u64>) {
         MAIN_HWND = tauri_hwnd;
     }
 
-    let fps = fps.unwrap_or(24);
-    let interval = Duration::from_millis(1000 / fps);
+    let fps = fps.unwrap_or(180);
+    let interval_duration = Duration::from_millis(1000 / fps);
     let stream_id = STREAM_ID.to_string();
 
     // Create stop flag
     let should_stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
     STREAM_REGISTRY.insert(stream_id.clone(), should_stop.clone());
 
-    std::thread::spawn(move || {
-        while !should_stop.load(std::sync::atomic::Ordering::Relaxed) {
-            let mut windows: Vec<DisplayInfo> = Vec::new();
+    tauri::async_runtime::spawn(async move {
+        let mut ticker = tokio::time::interval(interval_duration);
 
+        loop {
+            // Wait for next tick
+            ticker.tick().await;
+
+            // Check stop flag
+            if should_stop.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
+
+            // Capture windows
+            let mut windows: Vec<DisplayInfo> = Vec::new();
             unsafe {
                 let _ = EnumWindows(
                     Some(enum_windows_callback),
                     LPARAM(&mut windows as *mut _ as isize),
                 );
             }
-            let start = std::time::Instant::now();
 
             // NOTE: this is for window
-            let window_sources: Vec<CaptureSource> = windows
+            // Extract to Send-able data
+            let window_data: Vec<_> = windows
                 .iter()
                 .filter(|w| w.is_capturable)
-                .map(|w| CaptureSource {
-                    id: w.handle.to_string(),
-                    title: w.title.clone(),
-                    thumbnail: capture_app_window(w.hwnd, 320, 180).unwrap_or_default(),
-                    icon: get_window_icon(w.hwnd),
-                    source_type: "window".to_string(),
-                    width: w.rect.right - w.rect.left,
-                    height: w.rect.bottom - w.rect.top,
+                .map(|w| (w.hwnd.0 as isize, w.handle, w.title.clone(), w.rect))
+                .collect();
+
+            let window_sources: Vec<CaptureSource> = window_data
+                .par_iter()
+                .map(|(hwnd_ptr, handle, title, rect)| {
+                    let hwnd = HWND(*hwnd_ptr as *mut _);
+                    CaptureSource {
+                        id: handle.to_string(),
+                        title: title.clone(),
+                        // thumbnail: capture_app_window(hwnd, 320, 180).unwrap_or_default(),
+                        thumbnail: "".to_string(),
+                        icon: get_window_icon(hwnd),
+                        // icon: None,
+                        source_type: "window".to_string(),
+                        width: rect.right - rect.left,
+                        height: rect.bottom - rect.top,
+                    }
                 })
                 .collect();
 
             let monitors = get_monitors_info();
             // NOTE: this is for monitor
-            let monitor_sources: Vec<CaptureSource> = monitors
+            let monitor_data: Vec<_> = monitors
                 .iter()
-                .map(|m| CaptureSource {
-                    id: format!("monitor_{}", m.device_name),
-                    title: m.device_name.clone(),
-                    thumbnail: capture_monitor_display(m.hmonitor, 320, 180).unwrap_or_default(),
-                    icon: None,
-                    source_type: "monitor".to_string(),
-                    width: m.rect.right - m.rect.left,
-                    height: m.rect.bottom - m.rect.top,
+                .map(|m| (m.hmonitor.0 as isize, m.device_name.clone(), m.rect.clone()))
+                .collect();
+
+            let monitor_sources: Vec<CaptureSource> = monitor_data
+                .par_iter()
+                .map(|(hmon_ptr, device_name, rect)| {
+                    let hmonitor = HMONITOR(*hmon_ptr as *mut _);
+                    CaptureSource {
+                        id: format!("monitor_{}", device_name),
+                        title: device_name.clone(),
+                        thumbnail: capture_monitor_display(hmonitor, 320, 180).unwrap_or_default(),
+                        // thumbnail: "".to_string(),
+                        icon: None,
+                        source_type: "monitor".to_string(),
+                        width: rect.right - rect.left,
+                        height: rect.bottom - rect.top,
+                    }
                 })
                 .collect();
 
             let sources: Vec<CaptureSource> = [window_sources, monitor_sources].concat();
 
-            let elapsed = start.elapsed().as_millis();
+            // let frame_time = interval_duration.as_millis() as i32;
+            // let fps_actual = if frame_time > 0 { 1000 / frame_time } else { 0 };
+
             let update = SourcesUpdate {
                 sources,
-                fps: elapsed as i32,
+                fps: fps as i32,
             };
 
             let _ = app.emit("share-screen-list", &update);
@@ -303,7 +335,11 @@ pub fn stream_list(window: Window, app: AppHandle, fps: Option<u64>) {
             // DEBUG FPS
             // let _ = app.emit("debug-stream-fps", &elapsed);
 
-            std::thread::sleep(interval);
+            // let elapsed_remaining = start.elapsed();
+            // let remaining = interval_duration
+            //     .checked_sub(elapsed_remaining)
+            //     .unwrap_or_default();
+            // std::thread::sleep(remaining);
         }
 
         // Cleanup

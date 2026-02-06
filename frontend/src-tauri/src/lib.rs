@@ -6,11 +6,18 @@
 )]
 
 use crate::app_window::panic_hook;
+use anyhow::{Context, Result};
+use std::sync::Mutex;
 
 mod app_window;
 mod dto;
 mod sharescreen;
 mod tray;
+
+struct AppState {
+    selected_window_hwnd: Mutex<Option<isize>>,
+    selected_monitor_hmonitor: Mutex<Option<isize>>,
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -20,6 +27,10 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_autostart::Builder::new().build())
+        .manage(AppState {
+            selected_window_hwnd: Mutex::new(None),
+            selected_monitor_hmonitor: Mutex::new(None),
+        })
         .on_window_event(|_window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
@@ -35,6 +46,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             sharescreen::get_windows::get_list,
+            sharescreen::get_windows::stream_list,
+            sharescreen::get_windows::close_stream_list,
             risk_command,
             panic_test
         ])
@@ -43,7 +56,6 @@ pub fn run() {
 }
 
 // NOTE: testing error
-use anyhow::{Context, Result};
 
 fn risky_fn() -> Result<String> {
     let data = std::fs::read_to_string("data.txt").context("Failed to read data.txt")?;

@@ -1,3 +1,4 @@
+pub mod capturer;
 pub mod draw_overlay;
 pub mod dto;
 pub mod get_windows;

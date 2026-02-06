@@ -1,4 +1,7 @@
-use tauri::Window;
+use std::{sync::Arc, time::Duration};
+
+use dashmap::DashMap;
+use tauri::{AppHandle, Emitter, Window};
 use windows::Win32::{
     Foundation::{HWND, LPARAM, RECT},
     Graphics::Gdi::{
@@ -9,11 +12,18 @@ use windows::Win32::{
 use windows_core::BOOL;
 
 use crate::sharescreen::{
+    capturer::{capture_window_dwm, get_window_icon},
     draw_overlay,
-    dto::{DisplayInfo, MonitorRect},
+    dto::{CaptureSource, DisplayInfo, MonitorRect, SourcesUpdate},
 };
 // Global mutable to store the current Tauri window handle
 static mut MAIN_HWND: HWND = HWND(std::ptr::null_mut());
+lazy_static::lazy_static! {
+    static ref STREAM_REGISTRY: Arc<DashMap<String, Arc<std::sync::atomic::AtomicBool>>> =
+        Arc::new(DashMap::new());
+}
+
+const STREAM_ID: &str = "capture_stream";
 
 unsafe extern "system" fn enum_windows_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
     unsafe {
@@ -168,13 +178,74 @@ unsafe extern "system" fn monitor_enum_proc(
 }
 
 #[tauri::command]
-pub fn stream_list() {
-    // TODO
+pub fn stream_list(window: Window, app: AppHandle, fps: Option<u64>) {
+    let tauri_hwnd = window.hwnd().expect("Failed to get HWND");
+
+    unsafe {
+        MAIN_HWND = tauri_hwnd;
+    }
+
+    let fps = fps.unwrap_or(24);
+    let interval = Duration::from_millis(1000 / fps);
+    let stream_id = STREAM_ID.to_string();
+
+    // Create stop flag
+    let should_stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    STREAM_REGISTRY.insert(stream_id.clone(), should_stop.clone());
+
+    std::thread::spawn(move || {
+        while !should_stop.load(std::sync::atomic::Ordering::Relaxed) {
+            let mut windows: Vec<DisplayInfo> = Vec::new();
+
+            unsafe {
+                let _ = EnumWindows(
+                    Some(enum_windows_callback),
+                    LPARAM(&mut windows as *mut _ as isize),
+                );
+            }
+            let start = std::time::Instant::now();
+
+            let sources: Vec<CaptureSource> = windows
+                .iter()
+                .filter(|w| w.is_capturable)
+                .map(|w| CaptureSource {
+                    id: w.handle.to_string(),
+                    title: w.title.clone(),
+                    thumbnail: capture_window_dwm(w.hwnd, 320, 180).unwrap_or_default(),
+                    icon: get_window_icon(w.hwnd),
+                    source_type: "window".to_string(),
+                    width: w.rect.right - w.rect.left,
+                    height: w.rect.bottom - w.rect.top,
+                })
+                .collect();
+
+            let elapsed = start.elapsed().as_millis();
+            let update = SourcesUpdate {
+                sources,
+                fps: elapsed as i32,
+            };
+
+            let _ = app.emit("share-screen-list", &update);
+
+            // DEBUG FPS
+
+            // let _ = app.emit("debug-stream-fps", &elapsed);
+
+            std::thread::sleep(interval);
+        }
+
+        // Cleanup
+        STREAM_REGISTRY.remove(&stream_id);
+    });
 }
 
 #[tauri::command]
 pub fn close_stream_list() {
-    // TODO
+    let stream_id = STREAM_ID.to_string();
+
+    if let Some(entry) = STREAM_REGISTRY.get(&stream_id) {
+        entry.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 #[tauri::command]

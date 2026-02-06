@@ -32,4 +32,5 @@ pub struct DisplayInfo {
 #[derive(Clone, serde::Serialize)]
 pub struct SourcesUpdate {
     pub sources: Vec<CaptureSource>,
+    pub fps: i32,
 }

@@ -1,12 +1,12 @@
-import { Loader2Icon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SpinnerIcon } from "@phosphor-icons/react";
 
 function Spinner({
   className,
   ...props
-}: React.ComponentProps<typeof Loader2Icon>) {
+}: React.ComponentProps<typeof SpinnerIcon>) {
   return (
-    <Loader2Icon
+    <SpinnerIcon
       aria-label="Loading"
       className={cn("animate-spin", className)}
       role="status"

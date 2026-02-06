@@ -3879,6 +3879,7 @@ dependencies = [
 name = "tauri-livekit-with-custom-sharescreen-ui"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "base64 0.22.1",
  "png 0.18.0",
  "serde",

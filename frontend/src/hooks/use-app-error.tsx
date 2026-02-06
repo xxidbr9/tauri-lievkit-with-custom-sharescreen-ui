@@ -1,14 +1,13 @@
 import { useEffect } from "react";
 import { toast } from "sonner";
-import { AlertTriangle } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
 
 export const useAppError = () => {
   useEffect(() => {
     const handleWindowError = (e: ErrorEvent) => {
       console.error("handleWindowError: ", e);
-      toast("Renderer Error", {
+      toast.error("Proccess Error!", {
         description: e.message,
-        icon: <AlertTriangle className="text-red-500" />,
       });
     };
 
@@ -19,9 +18,8 @@ export const useAppError = () => {
           ? e.reason
           : e.reason?.message || "Unhandled Promise Rejection";
 
-      toast("Unhandled Promise", {
+      toast.warning("App Error!", {
         description: msg,
-        icon: <AlertTriangle className="text-orange-500" />,
       });
     };
 
@@ -31,6 +29,17 @@ export const useAppError = () => {
     return () => {
       window.removeEventListener("error", handleWindowError);
       window.removeEventListener("unhandledrejection", handlePromiseRejection);
+    };
+  }, []);
+
+  useEffect(() => {
+    const unlistenPromise = listen<string>("rust-panic", (e) => {
+      console.error("Rust panic:", e.payload);
+      toast.error("App Panic!", { description: e.payload });
+    });
+
+    return () => {
+      unlistenPromise.then((u) => u());
     };
   }, []);
 

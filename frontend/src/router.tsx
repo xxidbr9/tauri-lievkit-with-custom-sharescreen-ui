@@ -13,25 +13,25 @@ import {
   FrameHeader,
   FramePanel,
   FrameTitle,
-} from "./components/ui/frame";
-import { Button } from "./components/ui/button";
+} from "@/components/ui/frame";
+import { Button } from "@/components/ui/button";
 import {
   Avatar,
   AvatarBadge,
   AvatarFallback,
   AvatarImage,
-} from "./components/ui/avatar";
+} from "@/components/ui/avatar";
 import {
-  Camera,
-  Folder,
-  Hand,
-  LucidePhoneOff,
-  Menu,
-  MessageCircleIcon,
-  Mic,
-  MonitorUp,
-  Presentation,
-} from "lucide-react";
+  VideoCameraIcon,
+  FolderIcon,
+  HandPalmIcon,
+  PhoneSlashIcon,
+  ListIcon,
+  ChatCircleIcon,
+  MicrophoneIcon,
+  MonitorArrowUpIcon,
+  ChalkboardSimpleIcon,
+} from "@phosphor-icons/react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,8 +45,8 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-} from "./components/ui/menu";
-import Dock from "./components/ui/dock";
+} from "@/components/ui/menu";
+import Dock from "@/components/ui/dock";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -57,10 +57,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "./components/ui/alert-dialog";
-import { cn } from "./lib/utils";
+} from "@/components/ui/alert-dialog";
+import { cn } from "@/lib/utils";
 import React from "react";
 import { exit } from "@tauri-apps/plugin-process";
+import { invoke } from "@tauri-apps/api/core";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -77,6 +83,14 @@ const indexRoute = createRoute({
   component: () => <div>Index Page</div>,
 });
 
+const triggerError = async () => {
+  await invoke("risk_command");
+};
+
+const panicTest = async () => {
+  await invoke("panic_test");
+};
+
 const meetingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/meeting",
@@ -90,6 +104,22 @@ const meetingRoute = createRoute({
         <DropdownMenuDemo />
       </FrameHeader>
       <FramePanel className="flex-1">
+        <Tooltip>
+          <TooltipTrigger
+            render={<Button onClick={triggerError}>Risky Error</Button>}
+          />
+          <TooltipContent>Risky Error</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button variant={"destructive"} onClick={panicTest}>
+                Panis Test
+              </Button>
+            }
+          />
+          <TooltipContent>Panic Test</TooltipContent>
+        </Tooltip>
         {/*<h2 className="font-semibold text-sm">Section title</h2>
         <p className="text-muted-foreground text-sm">Section description</p>*/}
       </FramePanel>
@@ -99,37 +129,37 @@ const meetingRoute = createRoute({
       <Dock
         items={[
           {
-            icon: <Mic className="size-4" strokeWidth={1.5} />,
+            icon: <MicrophoneIcon className="size-4" strokeWidth={1.5} />,
             label: "Mic",
             onClick: () => alert("Mic!"),
           },
           {
-            icon: <Camera className="size-4" strokeWidth={1.5} />,
+            icon: <VideoCameraIcon className="size-4" strokeWidth={1.5} />,
             label: "Camera",
             onClick: () => alert("Camera!"),
           },
           {
-            icon: <Hand className="size-4" strokeWidth={1.5} />,
+            icon: <HandPalmIcon className="size-4" strokeWidth={1.5} />,
             label: "Raise Hand",
             onClick: () => alert("Raise Hand!"),
           },
           {
-            icon: <MonitorUp className="size-4" strokeWidth={1.5} />,
+            icon: <MonitorArrowUpIcon className="size-4" strokeWidth={1.5} />,
             label: "Share Screen",
             onClick: () => alert("Raise Hand!"),
           },
           {
-            icon: <Presentation className="size-4" strokeWidth={1.5} />,
+            icon: <ChalkboardSimpleIcon className="size-4" strokeWidth={1.5} />,
             label: "Board",
             onClick: () => alert("Raise Hand!"),
           },
           {
-            icon: <MessageCircleIcon className="size-4" strokeWidth={1.5} />,
+            icon: <ChatCircleIcon className="size-4" strokeWidth={1.5} />,
             label: "Chat",
             onClick: () => alert("Chat!"),
           },
           {
-            icon: <Folder className="size-4" strokeWidth={1.5} />,
+            icon: <FolderIcon className="size-4" strokeWidth={1.5} />,
             label: "Files",
             onClick: () => alert("Files!"),
           },
@@ -162,7 +192,7 @@ export function DropdownMenuDemo() {
                 <AvatarFallback>XX</AvatarFallback>
                 <AvatarBadge className="bg-green-600 dark:bg-green-500" />
               </Avatar>
-              <Menu className="size-4" />
+              <ListIcon className="size-4" />
             </Button>
           }
         />
@@ -181,6 +211,7 @@ export function DropdownMenuDemo() {
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
             <DropdownMenuItem
+              nativeButton
               render={(props) => (
                 <button
                   {...props}

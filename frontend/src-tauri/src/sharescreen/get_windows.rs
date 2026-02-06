@@ -12,7 +12,7 @@ use windows::Win32::{
 use windows_core::BOOL;
 
 use crate::sharescreen::{
-    capturer::{capture_window_dwm, get_window_icon},
+    capturer::{capture_window, get_window_icon},
     draw_overlay,
     dto::{CaptureSource, DisplayInfo, MonitorRect, SourcesUpdate},
 };
@@ -211,7 +211,7 @@ pub fn stream_list(window: Window, app: AppHandle, fps: Option<u64>) {
                 .map(|w| CaptureSource {
                     id: w.handle.to_string(),
                     title: w.title.clone(),
-                    thumbnail: capture_window_dwm(w.hwnd, 320, 180).unwrap_or_default(),
+                    thumbnail: capture_window(w.hwnd, 320, 180).unwrap_or_default(),
                     icon: get_window_icon(w.hwnd),
                     source_type: "window".to_string(),
                     width: w.rect.right - w.rect.left,

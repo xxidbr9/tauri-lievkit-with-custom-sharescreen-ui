@@ -5,30 +5,31 @@ use windows::Win32::{
     Graphics::{Dwm::*, Gdi::*},
     UI::WindowsAndMessaging::*,
 };
+use windows_core::BOOL;
+
+#[link(name = "user32")]
+extern "system" {
+    fn PrintWindow(hwnd: HWND, hdcBlt: HDC, nFlags: u32) -> BOOL;
+}
 
 // NOTE: this is too slow idk haha
-pub fn capture_window_dwm(hwnd: HWND, max_width: i32, max_height: i32) -> Option<String> {
+pub fn capture_window(hwnd: HWND, max_width: i32, max_height: i32) -> Option<String> {
     unsafe {
         let hdc_screen = GetDC(None);
         let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
 
         let mut rect = RECT::default();
-        DwmGetWindowAttribute(
-            hwnd,
-            DWMWA_EXTENDED_FRAME_BOUNDS,
-            &mut rect as *mut _ as *mut _,
-            std::mem::size_of::<RECT>() as u32,
-        )
-        .ok()?;
+        if GetWindowRect(hwnd, &mut rect).is_err() {
+            return None;
+        }
 
         let orig_width = rect.right - rect.left;
         let orig_height = rect.bottom - rect.top;
-
         if orig_width <= 0 || orig_height <= 0 {
             return None;
         }
 
-        // Compute scaled size preserving aspect ratio
+        // Aspect-ratio scaling
         let aspect = orig_width as f32 / orig_height as f32;
         let (thumb_w, thumb_h) = if orig_width > orig_height {
             let w = max_width.min(orig_width);
@@ -39,26 +40,22 @@ pub fn capture_window_dwm(hwnd: HWND, max_width: i32, max_height: i32) -> Option
             let w = (h as f32 * aspect).round() as i32;
             (w, h)
         };
-
         if thumb_w <= 0 || thumb_h <= 0 {
             return None;
         }
 
-        // Capture full-size bitmap
         let hbitmap = CreateCompatibleBitmap(hdc_screen, orig_width, orig_height);
         let old_bitmap = SelectObject(hdc_mem, hbitmap.into());
 
-        let _ = BitBlt(
-            hdc_mem,
-            0,
-            0,
-            orig_width,
-            orig_height,
-            Some(hdc_screen),
-            rect.left,
-            rect.top,
-            SRCCOPY | CAPTUREBLT,
-        );
+        // Use PrintWindow instead of BitBlt
+        let ok = PrintWindow(hwnd, hdc_mem, PW_RENDERFULLCONTENT).as_bool();
+        if !ok {
+            SelectObject(hdc_mem, old_bitmap);
+            let _ = DeleteObject(hbitmap.into());
+            let _ = DeleteDC(hdc_mem);
+            let _ = ReleaseDC(None, hdc_screen);
+            return None;
+        }
 
         let base64_data =
             bitmap_to_base64_png_resized(hbitmap, orig_width, orig_height, thumb_w, thumb_h);
@@ -118,6 +115,19 @@ pub fn capture_monitor_thumbnail(
             height,
             SRCCOPY,
         );
+
+        // NOTE: this is work GPU
+        // let _ = BitBlt(
+        //     hdc_mem,
+        //     0,
+        //     0,
+        //     orig_width,
+        //     orig_height,
+        //     Some(hdc_screen),
+        //     rect.left,
+        //     rect.top,
+        //     SRCCOPY | CAPTUREBLT,
+        // );
 
         let base64_data = bitmap_to_base64_png(hbitmap, thumb_w, thumb_h);
 

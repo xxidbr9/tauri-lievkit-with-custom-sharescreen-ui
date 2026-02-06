@@ -5,7 +5,7 @@ import { useAppError } from "./hooks/use-app-error";
 import { DirectionProvider } from "./components/ui/direction";
 import { ShadcnProvider } from "./hooks/shadcn-provider";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
+// import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import ThemeProvider from "./hooks/theme-provider";
 
 const queryClient = new QueryClient();

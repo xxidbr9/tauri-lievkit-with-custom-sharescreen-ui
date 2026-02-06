@@ -1,6 +1,9 @@
-use windows::Win32::Foundation::{HWND, RECT};
+use windows::Win32::{
+    Foundation::{HWND, RECT},
+    Graphics::Gdi::HMONITOR,
+};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct MonitorRect {
     pub left: i32,
     pub top: i32,
@@ -27,6 +30,13 @@ pub struct DisplayInfo {
     pub class_name: String,
     pub rect: RECT,
     pub is_capturable: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct MonitorInfo {
+    pub hmonitor: HMONITOR,
+    pub device_name: String,
+    pub rect: MonitorRect,
 }
 
 #[derive(Clone, serde::Serialize)]

@@ -2,7 +2,7 @@ use base64::{engine::general_purpose, Engine as _};
 
 use windows::Win32::{
     Foundation::{HWND, LPARAM, RECT, WPARAM},
-    Graphics::{Dwm::*, Gdi::*},
+    Graphics::Gdi::*,
     UI::WindowsAndMessaging::*,
 };
 use windows_core::BOOL;
@@ -12,8 +12,7 @@ extern "system" {
     fn PrintWindow(hwnd: HWND, hdcBlt: HDC, nFlags: u32) -> BOOL;
 }
 
-// NOTE: this is too slow idk haha
-pub fn capture_window(hwnd: HWND, max_width: i32, max_height: i32) -> Option<String> {
+pub fn capture_app_window(hwnd: HWND, max_width: i32, max_height: i32) -> Option<String> {
     unsafe {
         let hdc_screen = GetDC(None);
         let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
@@ -69,8 +68,7 @@ pub fn capture_window(hwnd: HWND, max_width: i32, max_height: i32) -> Option<Str
     }
 }
 
-// TODO: Implement capture_monitor_thumbnail function
-pub fn capture_monitor_thumbnail(
+pub fn capture_monitor_display(
     hmonitor: HMONITOR,
     max_width: i32,
     max_height: i32,
@@ -84,52 +82,57 @@ pub fn capture_monitor_thumbnail(
         if !GetMonitorInfoW(hmonitor, &mut info).as_bool() {
             return None;
         }
-
-        let rect = info.rcMonitor;
-        let width = rect.right - rect.left;
-        let height = rect.bottom - rect.top;
-
-        let aspect = width as f32 / height as f32;
-        let (thumb_w, thumb_h) = if width > height {
-            (max_width, (max_width as f32 / aspect) as i32)
-        } else {
-            ((max_height as f32 * aspect) as i32, max_height)
-        };
-
         let hdc_screen = GetDC(None);
         let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
-        let hbitmap = CreateCompatibleBitmap(hdc_screen, thumb_w, thumb_h);
+
+        let rect = info.rcMonitor;
+        let orig_width = rect.right - rect.left;
+        let orig_height = rect.bottom - rect.top;
+        if orig_width <= 0 || orig_height <= 0 {
+            return None;
+        }
+
+        // Aspect-ratio scaling
+        let aspect = orig_width as f32 / orig_height as f32;
+        let (thumb_w, thumb_h) = if orig_width > orig_height {
+            let w = max_width.min(orig_width);
+            let h = (w as f32 / aspect).round() as i32;
+            (w, h)
+        } else {
+            let h = max_height.min(orig_height);
+            let w = (h as f32 * aspect).round() as i32;
+            (w, h)
+        };
+        if thumb_w <= 0 || thumb_h <= 0 {
+            return None;
+        }
+
+        let hbitmap = CreateCompatibleBitmap(hdc_screen, orig_width, orig_height);
         let old_bitmap = SelectObject(hdc_mem, hbitmap.into());
 
-        SetStretchBltMode(hdc_mem, STRETCH_HALFTONE);
-        let _ = StretchBlt(
+        let ok = BitBlt(
             hdc_mem,
             0,
             0,
-            thumb_w,
-            thumb_h,
+            orig_width,
+            orig_height,
             Some(hdc_screen),
             rect.left,
             rect.top,
-            width,
-            height,
-            SRCCOPY,
-        );
+            SRCCOPY | CAPTUREBLT,
+        )
+        .is_ok();
 
-        // NOTE: this is work GPU
-        // let _ = BitBlt(
-        //     hdc_mem,
-        //     0,
-        //     0,
-        //     orig_width,
-        //     orig_height,
-        //     Some(hdc_screen),
-        //     rect.left,
-        //     rect.top,
-        //     SRCCOPY | CAPTUREBLT,
-        // );
+        if !ok {
+            SelectObject(hdc_mem, old_bitmap);
+            let _ = DeleteObject(hbitmap.into());
+            let _ = DeleteDC(hdc_mem);
+            let _ = ReleaseDC(None, hdc_screen);
+            return None;
+        }
 
-        let base64_data = bitmap_to_base64_png(hbitmap, thumb_w, thumb_h);
+        let base64_data =
+            bitmap_to_base64_png_resized(hbitmap, orig_width, orig_height, thumb_w, thumb_h);
 
         SelectObject(hdc_mem, old_bitmap);
         let _ = DeleteObject(hbitmap.into());
@@ -280,6 +283,7 @@ pub fn get_window_icon(hwnd: HWND) -> Option<String> {
         icon_to_base64_png(hicon, 32, 32)
     }
 }
+
 pub fn icon_to_base64_png(hicon: HICON, width: i32, height: i32) -> Option<String> {
     unsafe {
         let hdc_screen = GetDC(None);

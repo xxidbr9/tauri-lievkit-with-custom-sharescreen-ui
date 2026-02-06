@@ -12,9 +12,9 @@ use windows::Win32::{
 use windows_core::BOOL;
 
 use crate::sharescreen::{
-    capturer::{capture_window, get_window_icon},
+    capturer::{capture_app_window, capture_monitor_display, get_window_icon},
     draw_overlay,
-    dto::{CaptureSource, DisplayInfo, MonitorRect, SourcesUpdate},
+    dto::{CaptureSource, DisplayInfo, MonitorInfo, MonitorRect, SourcesUpdate},
 };
 // Global mutable to store the current Tauri window handle
 static mut MAIN_HWND: HWND = HWND(std::ptr::null_mut());
@@ -177,6 +177,61 @@ unsafe extern "system" fn monitor_enum_proc(
     BOOL(1)
 }
 
+fn get_monitors_info() -> Vec<MonitorInfo> {
+    let mut monitors = Vec::new();
+
+    unsafe extern "system" fn callback(
+        hmonitor: HMONITOR,
+        _: HDC,
+        _: *mut RECT,
+        lparam: LPARAM,
+    ) -> BOOL {
+        let monitors = &mut *(lparam.0 as *mut Vec<MonitorInfo>);
+
+        let mut info = MONITORINFOEXW {
+            monitorInfo: MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFOEXW>() as u32,
+                ..Default::default()
+            },
+            szDevice: [0; 32],
+        };
+
+        if GetMonitorInfoW(
+            hmonitor,
+            &mut info.monitorInfo as *mut _ as *mut MONITORINFO,
+        )
+        .as_bool()
+        {
+            let device_name = String::from_utf16_lossy(
+                &info.szDevice[..info.szDevice.iter().position(|&c| c == 0).unwrap_or(0)],
+            );
+            monitors.push(MonitorInfo {
+                hmonitor,
+                device_name,
+                rect: MonitorRect {
+                    left: info.monitorInfo.rcMonitor.left,
+                    top: info.monitorInfo.rcMonitor.top,
+                    right: info.monitorInfo.rcMonitor.right,
+                    bottom: info.monitorInfo.rcMonitor.bottom,
+                },
+            });
+        }
+
+        BOOL(1)
+    }
+
+    unsafe {
+        let _ = EnumDisplayMonitors(
+            None,
+            None,
+            Some(callback),
+            LPARAM(&mut monitors as *mut _ as isize),
+        );
+    }
+
+    monitors
+}
+
 #[tauri::command]
 pub fn stream_list(window: Window, app: AppHandle, fps: Option<u64>) {
     let tauri_hwnd = window.hwnd().expect("Failed to get HWND");
@@ -205,19 +260,37 @@ pub fn stream_list(window: Window, app: AppHandle, fps: Option<u64>) {
             }
             let start = std::time::Instant::now();
 
-            let sources: Vec<CaptureSource> = windows
+            // NOTE: this is for window
+            let window_sources: Vec<CaptureSource> = windows
                 .iter()
                 .filter(|w| w.is_capturable)
                 .map(|w| CaptureSource {
                     id: w.handle.to_string(),
                     title: w.title.clone(),
-                    thumbnail: capture_window(w.hwnd, 320, 180).unwrap_or_default(),
+                    thumbnail: capture_app_window(w.hwnd, 320, 180).unwrap_or_default(),
                     icon: get_window_icon(w.hwnd),
                     source_type: "window".to_string(),
                     width: w.rect.right - w.rect.left,
                     height: w.rect.bottom - w.rect.top,
                 })
                 .collect();
+
+            let monitors = get_monitors_info();
+            // NOTE: this is for monitor
+            let monitor_sources: Vec<CaptureSource> = monitors
+                .iter()
+                .map(|m| CaptureSource {
+                    id: format!("monitor_{}", m.device_name),
+                    title: m.device_name.clone(),
+                    thumbnail: capture_monitor_display(m.hmonitor, 320, 180).unwrap_or_default(),
+                    icon: None,
+                    source_type: "monitor".to_string(),
+                    width: m.rect.right - m.rect.left,
+                    height: m.rect.bottom - m.rect.top,
+                })
+                .collect();
+
+            let sources: Vec<CaptureSource> = [window_sources, monitor_sources].concat();
 
             let elapsed = start.elapsed().as_millis();
             let update = SourcesUpdate {
@@ -228,7 +301,6 @@ pub fn stream_list(window: Window, app: AppHandle, fps: Option<u64>) {
             let _ = app.emit("share-screen-list", &update);
 
             // DEBUG FPS
-
             // let _ = app.emit("debug-stream-fps", &elapsed);
 
             std::thread::sleep(interval);

@@ -1,11 +1,11 @@
 use crate::share_screen::dto::{
-    AudioDevice, CaptureConfig, CaptureError, CaptureSourceType, MonitorRect, Result, WindowInfo,
+    AudioDevice, CaptureConfig, CaptureError, CaptureSourceType, Result, WindowInfo,
 };
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use vpx_encode::{Config as VpxConfig, Encoder, VideoCodecId};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
-use windows::Win32::Graphics::Gdi::{
-    EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO,
-};
+use windows::Win32::Graphics::Gdi::HMONITOR;
 use windows::Win32::System::WinRT::Direct3D11::{
     CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess,
 };
@@ -17,10 +17,9 @@ use windows::{
     Win32::Graphics::Dxgi::*, Win32::Media::Audio::*, Win32::System::Com::*,
     Win32::UI::WindowsAndMessaging::*, core::*,
 };
+
 #[derive(Clone)]
 pub struct WindowCapture;
-unsafe impl Send for WindowCapture {}
-unsafe impl Sync for WindowCapture {}
 
 impl WindowCapture {
     pub fn new() -> Self {
@@ -248,7 +247,15 @@ pub async fn capture_single_frame_internal(
     height: i32,
 ) -> Result<Vec<u8>> {
     use windows::Win32::System::WinRT::*;
-
+    if let CaptureSourceType::Window(hwnd) = source_type {
+        unsafe {
+            let hwnd = HWND(hwnd as *mut _);
+            // This prevents the yellow border from appearing
+            let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+            // Wait a bit for the change to take effect
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        }
+    }
     unsafe {
         RoInitialize(RO_INIT_MULTITHREADED)
             .map_err(|e| CaptureError::PlatformError(e.to_string()))?;
@@ -275,6 +282,10 @@ pub async fn capture_single_frame_internal(
 
         let session = frame_pool
             .CreateCaptureSession(&item)
+            .map_err(|e| CaptureError::PlatformError(e.to_string()))?;
+
+        session
+            .SetIsBorderRequired(false)
             .map_err(|e| CaptureError::PlatformError(e.to_string()))?;
 
         session
@@ -311,6 +322,7 @@ pub async fn capture_single_frame_internal(
     }
 }
 
+// TODO: handle panic unwind here
 pub async fn start_capture_internal(
     source_type: CaptureSourceType,
     config: CaptureConfig,
@@ -346,50 +358,232 @@ pub async fn start_capture_internal(
             .CreateCaptureSession(&item)
             .map_err(|e| CaptureError::PlatformError(e.to_string()))?;
 
-        let frame_interval = std::time::Duration::from_millis(1000 / config.fps as u64);
-        let last_frame = Arc::new(std::sync::Mutex::new(std::time::Instant::now()));
+        session
+            .SetIsCursorCaptureEnabled(true)
+            .map_err(|e| CaptureError::PlatformError(e.to_string()))?;
+
+        session
+            .SetIsBorderRequired(config.withborder.unwrap())
+            .map_err(|e| CaptureError::PlatformError(e.to_string()))?;
+
+        // Create channel for raw frames
+        let (frame_tx, frame_rx) = std::sync::mpsc::sync_channel::<(Vec<u8>, u64)>(10);
+
+        let target_frame_time = Duration::from_secs_f64(1.0 / config.fps as f64);
+        let last_frame_time = Arc::new(std::sync::Mutex::new(Instant::now()));
+        let frame_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
         let device_clone = device.clone();
         let context_clone = context.clone();
+        let last_frame_time_clone = last_frame_time.clone();
+        let frame_counter_clone = frame_counter.clone();
+        let config_clone = config.clone();
 
+        // Frame Arrived Handler
         frame_pool
             .FrameArrived(&TypedEventHandler::new(
                 move |pool_ref: Ref<Direct3D11CaptureFramePool>, _| {
-                    let mut last = last_frame.lock().unwrap();
-                    if last.elapsed() < frame_interval {
-                        return Ok(());
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        // {
+                        //     let mut last_time = last_frame_time_clone.lock().unwrap();
+                        //     let now = Instant::now();
+                        //     if now.duration_since(*last_time) < target_frame_time {
+                        //         return Ok(());
+                        //     }
+                        //     *last_time = now;
+                        // }
+
+                        let frame_num =
+                            frame_counter_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+                        let pool: &Direct3D11CaptureFramePool = match pool_ref.as_ref() {
+                            Some(p) => p,
+                            None => return Ok(()),
+                        };
+
+                        let frame = match pool.TryGetNextFrame() {
+                            Ok(f) => f,
+                            Err(_) => return Ok(()),
+                        };
+
+                        let surface = match frame.Surface() {
+                            Ok(s) => s,
+                            Err(_) => return Ok(()),
+                        };
+
+                        let access = match surface.cast::<IDirect3DDxgiInterfaceAccess>() {
+                            Ok(a) => a,
+                            Err(_) => return Ok(()),
+                        };
+
+                        let texture = match access.GetInterface::<ID3D11Texture2D>() {
+                            Ok(t) => t,
+                            Err(_) => return Ok(()),
+                        };
+
+                        let resized = match resize_texture_gpu(
+                            &device_clone,
+                            &context_clone,
+                            &texture,
+                            config_clone.width as u32,
+                            config_clone.height as u32,
+                        ) {
+                            Ok(r) => r,
+                            Err(e) => {
+                                if frame_num % 30 == 0 {
+                                    eprintln!("[Capture] Resize error: {:?}", e);
+                                }
+                                return Ok(());
+                            }
+                        };
+
+                        let bgra_bytes = match texture_to_bytes(&context_clone, &resized) {
+                            Ok(b) => b,
+                            Err(e) => {
+                                if frame_num % 30 == 0 {
+                                    eprintln!("[Capture] Texture read error: {:?}", e);
+                                }
+                                return Ok(());
+                            }
+                        };
+
+                        // DEBUG: Log captured frame
+                        // if frame_num % 30 == 0 {
+                        //     println!(
+                        //         "[Capture] Captured frame {}, size: {} bytes",
+                        //         frame_num,
+                        //         bgra_bytes.len()
+                        //     );
+                        // }
+
+                        // Send raw frame to encoder task
+                        let _ = frame_tx.try_send((bgra_bytes, frame_num));
+                        // Ok(_) => {
+                        //     if frame_num % 30 == 0 {
+                        //         println!("[Capture] ✓ Frame {} sent to encoder", frame_num);
+                        //     }
+                        // }
+                        // Err(e) => {
+                        //     if frame_num % 100 == 0 {
+                        //         eprintln!("[Capture] Frame send error: {:?}", e);
+                        //     }
+                        // }
+
+                        Ok(())
+                    }));
+
+                    match result {
+                        Ok(r) => r,
+                        Err(e) => {
+                            eprintln!("[Capture] Handler panic: {:?}", e);
+                            Ok(())
+                        }
                     }
-                    *last = std::time::Instant::now();
-                    // TODO: handle this if error
-                    let pool: &Direct3D11CaptureFramePool = pool_ref.as_ref().unwrap();
-                    if let Ok(frame) = pool.TryGetNextFrame() {
-                        if let Ok(surface) = frame.Surface() {
-                            if let Ok(access) = surface.cast::<IDirect3DDxgiInterfaceAccess>() {
-                                if let Ok(texture) = access.GetInterface::<ID3D11Texture2D>() {
-                                    if let Ok(resized) = resize_texture_gpu(
-                                        &device_clone,
-                                        &context_clone,
-                                        &texture,
-                                        config.width as u32,
-                                        config.height as u32,
-                                    ) {
-                                        if let Ok(bytes) =
-                                            texture_to_bytes(&context_clone, &resized)
-                                        {
-                                            let tx = video_tx.clone();
-                                            tokio::spawn(async move {
-                                                let _ = tx.send(bytes).await;
-                                            });
+                },
+            ))
+            .map_err(|e| CaptureError::PlatformError(e.to_string()))?;
+
+        // Encoder Task
+        let encoder_config = VpxConfig {
+            width: config.width as u32,
+            height: config.height as u32,
+            timebase: [1, config.fps as i32],
+            bitrate: 1000,
+            codec: VideoCodecId::VP8,
+        };
+
+        let width = config.width as usize;
+        let height = config.height as usize;
+
+        tokio::task::spawn_blocking(move || {
+            // println!("[Encode] Encoder task starting...");
+
+            let mut encoder = match Encoder::new(encoder_config) {
+                Ok(e) => {
+                    // println!("[Encode] ✓ VP8 encoder created successfully");
+                    e
+                }
+                Err(e) => {
+                    eprintln!("[Encode] ✗ Failed to create VP8 encoder: {:?}", e);
+                    return;
+                }
+            };
+
+            // println!("[Encode] Waiting for frames...");
+
+            // Block and process frames
+            loop {
+                match frame_rx.recv() {
+                    Ok((bgra_bytes, frame_num)) => {
+                        // if frame_num % 30 == 0 {
+                        //     println!(
+                        //         "[Encode] Received frame {} for encoding, size: {} bytes",
+                        //         frame_num,
+                        //         bgra_bytes.len()
+                        //     );
+                        // }
+
+                        // Convert BGRA to I420
+                        let i420_data = bgra_to_i420(&bgra_bytes, width, height);
+
+                        // if frame_num % 30 == 0 {
+                        //     println!(
+                        //         "[Encode] Converted to I420, size: {} bytes",
+                        //         i420_data.len()
+                        //     );
+                        // }
+
+                        // Encode
+                        match encoder.encode(frame_num as i64, &i420_data) {
+                            Ok(packets) => {
+                                // if frame_num % 30 == 0 {
+                                //     println!(
+                                //         "[Encode] Encoded frame {}, got packets",
+                                //         frame_num,
+                                //         // packets.len()
+                                //     );
+                                // }
+
+                                for packet in packets {
+                                    // if frame_num % 30 == 0 {
+                                    //     println!(
+                                    //         "[Encode] Packet: {} bytes (keyframe: {})",
+                                    //         packet.data.len(),
+                                    //         packet.key
+                                    //     );
+                                    // }
+
+                                    let data = packet.data.to_vec();
+
+                                    // Send to WebRTC
+                                    match video_tx.blocking_send(data) {
+                                        Ok(_) => {
+                                            if frame_num % 30 == 0 {
+                                                println!("[Encode] ✓ Sent VP8 packet to WebRTC");
+                                            }
+                                        }
+                                        Err(e) => {
+                                            eprintln!("[Encode] ✗ Failed to send to WebRTC: {}", e);
                                         }
                                     }
                                 }
                             }
+                            Err(e) => {
+                                if frame_num % 30 == 0 {
+                                    eprintln!("[Encode] VP8 encode error: {:?}", e);
+                                }
+                            }
                         }
                     }
-                    Ok(())
-                },
-            ))
-            .map_err(|e| CaptureError::PlatformError(e.to_string()))?;
+                    Err(e) => {
+                        eprintln!("[Encode] Channel closed: {:?}", e);
+                        break;
+                    }
+                }
+            }
+
+            println!("[Encode] Encoder task ended");
+        });
 
         session
             .StartCapture()
@@ -549,4 +743,41 @@ unsafe fn texture_to_bytes(
 
         Ok(result)
     }
+}
+
+// Convert BGRA to I420 (YUV420p)
+fn bgra_to_i420(bgra: &[u8], width: usize, height: usize) -> Vec<u8> {
+    let y_size = width * height;
+    let u_size = y_size / 4;
+    let v_size = y_size / 4;
+
+    let mut i420 = vec![0u8; y_size + u_size + v_size];
+
+    // Safe non-overlapping mutable slices
+    let (y_plane, uv) = i420.split_at_mut(y_size);
+    let (u_plane, v_plane) = uv.split_at_mut(u_size);
+
+    for y in 0..height {
+        for x in 0..width {
+            let bgra_idx = (y * width + x) * 4;
+            let b = bgra[bgra_idx] as f32;
+            let g = bgra[bgra_idx + 1] as f32;
+            let r = bgra[bgra_idx + 2] as f32;
+
+            let y_val = (0.299 * r + 0.587 * g + 0.114 * b) as u8;
+            y_plane[y * width + x] = y_val;
+
+            if y % 2 == 0 && x % 2 == 0 {
+                let uv_idx = (y / 2) * (width / 2) + (x / 2);
+
+                let u_val = (-0.147 * r - 0.289 * g + 0.436 * b + 128.0) as u8;
+                u_plane[uv_idx] = u_val;
+
+                let v_val = (0.615 * r - 0.515 * g - 0.100 * b + 128.0) as u8;
+                v_plane[uv_idx] = v_val;
+            }
+        }
+    }
+
+    i420
 }

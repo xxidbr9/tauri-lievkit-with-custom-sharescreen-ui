@@ -21,8 +21,6 @@ pub struct CaptureDevice {
     monitor_capture: MonitorCapture,
 }
 
-unsafe impl Send for CaptureDevice {}
-
 impl CaptureDevice {
     pub fn new() -> Self {
         Self {

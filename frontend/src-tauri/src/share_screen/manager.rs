@@ -13,8 +13,6 @@ pub struct CaptureManager {
     capture_device: CaptureDevice,
 }
 
-unsafe impl Send for CaptureManager {}
-
 use dashmap::DashMap;
 use tauri::async_runtime;
 

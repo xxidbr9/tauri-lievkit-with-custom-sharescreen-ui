@@ -15,7 +15,7 @@ export const DummiesLayout = () => {
     startMonitorPreview,
     startWindowPreview,
     setupPreviewConnection,
-    // stopPreview,
+    stopPreview,
   } = useScreenCapture();
 
   const [activeTab, setActiveTab] = useState<"monitors" | "windows">(
@@ -39,8 +39,12 @@ export const DummiesLayout = () => {
 
   // Auto-start previews for all sources
   useEffect(() => {
+    if (!activeTab) return;
     if (!monitors) return;
     if (!monitors.length) return;
+
+    if (!windows) return;
+    if (!windows.length) return;
 
     const sources = [monitors[0]];
     sources.forEach(async (source) => {
@@ -77,12 +81,18 @@ export const DummiesLayout = () => {
     initializedPreviews,
     startMonitorPreview,
     startWindowPreview,
+    activeTab,
   ]);
 
-  const sources = activeTab === "monitors" ? monitors : windows;
+  const sources = [...monitors, ...windows];
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-8">
+      {selectedSource && (
+        <button onClick={() => stopPreview(selectedSource)}>
+          Close stream
+        </button>
+      )}
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl font-bold mb-8">Select Screen to Share</h1>
 

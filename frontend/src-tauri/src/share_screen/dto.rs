@@ -22,6 +22,20 @@ pub struct CaptureConfig {
     pub fps: i32,
     pub width: i32,
     pub height: i32,
+    pub withborder: Option<bool>,
+    pub withaudio: Option<bool>,
+}
+
+impl Default for CaptureConfig {
+    fn default() -> Self {
+        Self {
+            fps: 30,
+            width: 1280,
+            height: 720,
+            withborder: Some(true),
+            withaudio: Some(false),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -68,7 +82,6 @@ pub struct CaptureStream {
     pub video_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
     pub capture_handle: Option<tauri::async_runtime::JoinHandle<()>>,
 }
-unsafe impl Send for CaptureStream {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CaptureSourceType {

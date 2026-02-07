@@ -8,8 +8,6 @@ use windows_core::BOOL;
 
 #[derive(Clone)]
 pub struct MonitorCapture;
-unsafe impl Send for MonitorCapture {}
-unsafe impl Sync for MonitorCapture {}
 
 impl MonitorCapture {
     pub fn new() -> Self {

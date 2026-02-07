@@ -1,14 +1,16 @@
 // src/share_screen/webrtc.rs
 use crate::share_screen::dto::{CaptureError, PreviewOffer, Result};
 // use std::collections::HashMap;
-use dashmap::DashMap;
+
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::SystemTime;
 use tokio::sync::Mutex;
+use webrtc::api::APIBuilder;
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
-use webrtc::api::{API, APIBuilder};
 use webrtc::ice_transport::ice_server::RTCIceServer;
+use webrtc::media::Sample;
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
@@ -42,21 +44,50 @@ impl WebRTCServer {
         let track = Arc::new(TrackLocalStaticSample::new(
             RTCRtpCodecCapability {
                 mime_type: "video/VP8".to_owned(),
-                ..Default::default()
+                clock_rate: 90000,
+                channels: 0,
+                sdp_fmtp_line: "".to_owned(),
+                rtcp_feedback: vec![],
             },
             format!("video-{}", id),
             format!("preview-{}", id),
         ));
 
         let track_clone = track.clone();
+        let id_clone = id.to_string();
+
         tokio::spawn(async move {
-            while let Some(data) = frame_rx.recv().await {
-                let sample = webrtc::media::Sample {
-                    data: data.into(),
+            let mut frame_count = 0u64;
+
+            while let Some(vp8_data) = frame_rx.recv().await {
+                frame_count += 1;
+
+                if frame_count % 30 == 0 {
+                    println!(
+                        "[WebRTC] Sending VP8 frame {} for {}, size: {} bytes",
+                        frame_count,
+                        id_clone,
+                        vp8_data.len()
+                    );
+                }
+
+                let sample = Sample {
+                    data: vp8_data.into(),
                     duration: std::time::Duration::from_millis(100),
-                    ..Default::default()
+                    timestamp: SystemTime::now(),
+                    packet_timestamp: 0,
+                    prev_dropped_packets: 0,
+                    prev_padding_packets: 0,
                 };
-                let _ = track_clone.write_sample(&sample).await;
+
+                if let Err(e) = track_clone.write_sample(&sample).await {
+                    eprintln!(
+                        "[WebRTC] Failed to write VP8 sample for {}: {}",
+                        id_clone, e
+                    );
+                } else if frame_count % 30 == 0 {
+                    println!("[WebRTC] ✓ VP8 frame {} written successfully", frame_count);
+                }
             }
         });
 

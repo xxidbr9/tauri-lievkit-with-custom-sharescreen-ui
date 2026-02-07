@@ -1,8 +1,7 @@
-use anyhow::Result;
 use base64::{Engine as _, engine::general_purpose};
 use fast_image_resize::images::Image;
-use fast_image_resize::{IntoImageView, PixelType, Resizer};
-use image::{ImageBuffer, RgbaImage, codecs::jpeg::JpegEncoder};
+use fast_image_resize::{PixelType, Resizer};
+use image::codecs::jpeg::JpegEncoder;
 use windows::Win32::{
     Foundation::{HWND, LPARAM, RECT, WPARAM},
     Graphics::Gdi::*,

@@ -42,12 +42,15 @@ tauri-build = { version = "2", features = [] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 anyhow = "1.0"
+env-libvpx-sys = { version = "5.1.3", features = ["generate"] }
 fast_image_resize = { version = "6.0", default-features = false, features = [
   "no_std"
 ] }
 image = "0.25.9"
 rayon = "1.11.0"
 tauri-plugin-autostart = "2"
+vpx-encode = "=0.6.0"
+webm = "2.2.0"
 wgc = "0.0.2"
 windows = { version = ">=0.61, <=0.62.2", features = [
   "Foundation",

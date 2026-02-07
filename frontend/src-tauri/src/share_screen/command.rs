@@ -4,7 +4,12 @@ use anyhow::Result;
 
 #[tauri::command]
 pub async fn get_monitors(fps: i32, width: i32, height: i32) -> Result<Vec<CaptureSource>, String> {
-    let config = CaptureConfig { fps, width, height };
+    let config = CaptureConfig {
+        fps,
+        width,
+        height,
+        ..Default::default()
+    };
 
     MANAGER
         .read()
@@ -16,8 +21,14 @@ pub async fn get_monitors(fps: i32, width: i32, height: i32) -> Result<Vec<Captu
 
 #[tauri::command]
 pub async fn get_windows(fps: i32, width: i32, height: i32) -> Result<Vec<CaptureSource>, String> {
-    let config = CaptureConfig { fps, width, height };
+    let config = CaptureConfig {
+        fps,
+        width,
+        height,
+        ..Default::default()
+    };
 
+    // TODO: handle sent this data using emit, so it always update, and make sure it have watchdog
     MANAGER
         .read()
         .await
@@ -33,7 +44,12 @@ pub async fn get_monitor_by_id(
     width: i32,
     height: i32,
 ) -> Result<CaptureSource, String> {
-    let config = CaptureConfig { fps, width, height };
+    let config = CaptureConfig {
+        fps,
+        width,
+        height,
+        ..Default::default()
+    };
 
     let source_type =
         CaptureSourceType::from_id(&id).ok_or_else(|| "Invalid monitor ID".to_string())?;
@@ -56,7 +72,12 @@ pub async fn get_window_by_id(
     width: i32,
     height: i32,
 ) -> Result<CaptureSource, String> {
-    let config = CaptureConfig { fps, width, height };
+    let config = CaptureConfig {
+        fps,
+        width,
+        height,
+        ..Default::default()
+    };
 
     let source_type =
         CaptureSourceType::from_id(&id).ok_or_else(|| "Invalid window ID".to_string())?;
@@ -79,7 +100,12 @@ pub async fn start_monitor_preview(
     width: i32,
     height: i32,
 ) -> Result<(), String> {
-    let config = CaptureConfig { fps, width, height };
+    let config = CaptureConfig {
+        fps,
+        width,
+        height,
+        ..Default::default()
+    };
 
     MANAGER
         .write()
@@ -96,7 +122,12 @@ pub async fn start_window_preview(
     width: i32,
     height: i32,
 ) -> Result<(), String> {
-    let config = CaptureConfig { fps, width, height };
+    let config = CaptureConfig {
+        fps,
+        width,
+        height,
+        ..Default::default()
+    };
 
     MANAGER
         .write()

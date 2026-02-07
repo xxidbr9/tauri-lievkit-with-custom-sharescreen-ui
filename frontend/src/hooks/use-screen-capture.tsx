@@ -171,43 +171,164 @@ export const useScreenCapture = () => {
   const setupPreviewConnection = useCallback(
     async (id: string, videoElement: HTMLVideoElement) => {
       try {
-        // Create peer connection
-        const offer = await invoke<PreviewOffer>("get_preview_offer", { id });
+        console.log(`[WebRTC] Setting up connection for ${id}`);
 
+        // Create peer connection
         const pc = new RTCPeerConnection();
 
+        // Debug: Log all events
         pc.ontrack = (event) => {
-          // should return at least 1 track
+          console.log({ event });
+          console.log(`[WebRTC] Track received for ${id}:`, {
+            kind: event.track.kind,
+            id: event.track.id,
+            readyState: event.track.readyState,
+            muted: event.track.muted,
+            enabled: event.track.enabled,
+            streams: event.streams.length,
+          });
+
           if (event.streams[0]) {
+            console.log(
+              `[WebRTC] Setting srcObject for ${id}`,
+              event.streams[0],
+            );
+            // videoElement.srcObject = null;
+            // videoElement.removeAttribute("srcObject");
+            // videoElement.src = "https://www.w3schools.com/html/mov_bbb.mp4";
             videoElement.srcObject = event.streams[0];
+
+            // Force video to play
+            videoElement
+              .play()
+              .then(() => {
+                console.log(`[WebRTC] Video playing for ${id}`);
+              })
+              .catch((err) => {
+                console.error(`[WebRTC] Failed to play video for ${id}:`, err);
+              });
+
+            console.log(`[WebRTC] Video element for ${id}:`, videoElement);
+          } else {
+            console.warn(`[WebRTC] No stream in track event for ${id}`);
           }
         };
 
         pc.onicecandidate = (event) => {
           if (event.candidate) {
-            console.log("ICE candidate:", event.candidate);
+            console.log(
+              `[WebRTC] ICE candidate for ${id}:`,
+              event.candidate.candidate,
+            );
+          } else {
+            console.log(`[WebRTC] ICE gathering complete for ${id}`);
           }
         };
 
+        pc.oniceconnectionstatechange = () => {
+          console.log(
+            `[WebRTC] ICE connection state for ${id}:`,
+            pc.iceConnectionState,
+          );
+        };
+
         pc.onconnectionstatechange = () => {
-          console.log(`Connection state for ${id}:`, pc.connectionState);
+          console.log(
+            `[WebRTC] Connection state for ${id}:`,
+            pc.connectionState,
+          );
+        };
+
+        pc.onsignalingstatechange = () => {
+          console.log(`[WebRTC] Signaling state for ${id}:`, pc.signalingState);
+        };
+
+        pc.onicegatheringstatechange = () => {
+          console.log(
+            `[WebRTC] ICE gathering state for ${id}:`,
+            pc.iceGatheringState,
+          );
         };
 
         // Get offer from backend
+        console.log(`[WebRTC] Getting offer from backend for ${id}`);
+        const offer = await invoke<PreviewOffer>("get_preview_offer", { id });
+        console.log(
+          `[WebRTC] Received offer for ${id}:`,
+          offer.sdp.substring(0, 100) + "...",
+        );
 
+        // Set remote description
+        console.log(`[WebRTC] Setting remote description for ${id}`);
         await pc.setRemoteDescription({ type: "offer", sdp: offer.sdp });
+
+        // Create answer
+        console.log(`[WebRTC] Creating answer for ${id}`);
         const answer = await pc.createAnswer();
+        console.log(
+          `[WebRTC] Answer created for ${id}:`,
+          answer.sdp?.substring(0, 100) + "...",
+        );
+
         await pc.setLocalDescription(answer);
+        console.log(`[WebRTC] Local description set for ${id}`);
 
         // Send answer to backend
+        console.log(`[WebRTC] Sending answer to backend for ${id}`);
         await invoke("accept_preview_answer", { id, sdp: answer.sdp });
+        console.log(`[WebRTC] Answer accepted by backend for ${id}`);
 
         // Store peer connection
         peerConnectionsRef.current.set(id, pc);
 
+        // Wait a bit and check video element
+        setTimeout(() => {
+          console.log(`[WebRTC] Video element state for ${id}:`, {
+            srcObject: videoElement.srcObject,
+            readyState: videoElement.readyState,
+            paused: videoElement.paused,
+            videoWidth: videoElement.videoWidth,
+            videoHeight: videoElement.videoHeight,
+          });
+        }, 2000);
+
+        const stats = await pc.getStats();
+
+        stats.forEach((r) => {
+          if (r.type === "inbound-rtp" && r.kind === "video") {
+            console.log("IN video:", {
+              packetsReceived: r.packetsReceived,
+              packetsLost: r.packetsLost,
+              framesDecoded: r.framesDecoded,
+              keyFramesDecoded: r.keyFramesDecoded,
+              frameWidth: r.frameWidth,
+              frameHeight: r.frameHeight,
+              bytesReceived: r.bytesReceived,
+            });
+          }
+
+          if (r.type === "outbound-rtp" && r.kind === "video") {
+            console.log("OUT video:", {
+              packetsSent: r.packetsSent,
+              framesEncoded: r.framesEncoded,
+              bytesSent: r.bytesSent,
+            });
+          }
+
+          if (r.type === "candidate-pair" && r.state === "succeeded") {
+            console.log("ICE selected pair:", {
+              currentRoundTripTime: r.currentRoundTripTime,
+              availableOutgoingBitrate: r.availableOutgoingBitrate,
+            });
+          }
+        });
+
         return pc;
       } catch (err) {
-        console.error("Failed to setup preview connection:", err);
+        console.error(
+          `[WebRTC] Failed to setup preview connection for ${id}:`,
+          err,
+        );
         throw err;
       }
     },

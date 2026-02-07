@@ -1,7 +1,6 @@
 import {
   Frame,
   FrameDescription,
-  FrameFooter,
   FrameHeader,
   FramePanel,
   FrameTitle,
@@ -17,7 +16,6 @@ import {
   VideoCameraIcon,
   FolderIcon,
   HandPalmIcon,
-  PhoneSlashIcon,
   ListIcon,
   ChatCircleIcon,
   MicrophoneIcon,
@@ -30,12 +28,8 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuPortal,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/menu";
 import Dock from "@/components/ui/dock";
@@ -48,7 +42,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import React, { useEffect } from "react";
@@ -71,8 +64,12 @@ const panicTest = async () => {
   await invoke("panic_test");
 };
 
-const testScreen = async () => {
-  await invoke("get_list");
+const startShareScreen = async () => {
+  await invoke("start_share_screen");
+};
+
+const closeShareScreen = async () => {
+  await invoke("close_share_screen");
 };
 
 const streamList = async () => {
@@ -140,12 +137,7 @@ export const SmallSizeMeetingLayout = () => {
             />
             <TooltipContent>Panic Test</TooltipContent>
           </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={<Button onClick={testScreen}>Screen Share Test</Button>}
-            />
-            <TooltipContent>Screen Share Test</TooltipContent>
-          </Tooltip>
+
           <Tooltip>
             <TooltipTrigger
               render={<Button onClick={streamList}>Stream List</Button>}
@@ -159,6 +151,23 @@ export const SmallSizeMeetingLayout = () => {
               }
             />
             <TooltipContent>Close Stream List</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button onClick={startShareScreen}>Start Share Screen</Button>
+              }
+            />
+            <TooltipContent>Start Share Screen</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button onClick={closeShareScreen}>Close Screen Share</Button>
+              }
+            />
+            <TooltipContent>Close Screen Share</TooltipContent>
           </Tooltip>
         </div>
       </FramePanel>

@@ -19,6 +19,8 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
+    "types": [],
+    "typeRoots": ["./src/@types", "./node_modules/@types"],
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],

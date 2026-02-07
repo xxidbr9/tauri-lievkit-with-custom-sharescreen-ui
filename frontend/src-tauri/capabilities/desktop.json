@@ -1,9 +1,11 @@
 {
   "identifier": "desktop-capability",
   "platforms": ["macOS", "windows", "linux"],
-  "windows": ["meeting"],
+  "windows": ["main"],
   "permissions": [
-    "autostart:default",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled",
     "core:window:default",
     "core:window:allow-start-dragging",
     "core:window:allow-internal-toggle-maximize",

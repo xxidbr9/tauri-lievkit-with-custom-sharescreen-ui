@@ -4,7 +4,7 @@
     windows_subsystem = "windows"
 )]
 
-use crate::app_window::panic_hook;
+use crate::app_window::{autostart, panic_hook};
 use anyhow::{Context, Result};
 use std::sync::Mutex;
 
@@ -40,11 +40,13 @@ pub fn run() {
 
             panic_hook::setup(handle.clone());
             app_window::setup_window::setup(&app);
+            autostart::setup(&app);
             let _ = tray::setup_tray(&app);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            sharescreen::get_windows::get_list,
+            sharescreen::get_windows::start_share_screen,
+            sharescreen::get_windows::close_share_screen,
             sharescreen::get_windows::stream_list,
             sharescreen::get_windows::close_stream_list,
             risk_command,

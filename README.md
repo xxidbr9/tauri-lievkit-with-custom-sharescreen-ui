@@ -6,3 +6,6 @@ This project demonstrates how to create a simple Tauri LievKit application with 
 ## Project Structure
 - [Frontend](./frontend) => Tuari
 - [Backend](./backend)  => Rust Axum
+
+## NOTE
+this project are not DONE yet, nor MAINTAINED, this is just for learning purpose.

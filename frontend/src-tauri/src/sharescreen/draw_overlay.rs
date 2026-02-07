@@ -1,4 +1,13 @@
-use std::{panic::AssertUnwindSafe, ptr, thread, time::Duration};
+use std::{
+    panic::AssertUnwindSafe,
+    ptr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread,
+    time::Duration,
+};
 use windows::Win32::{
     Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM},
     Graphics::Gdi::{
@@ -63,6 +72,7 @@ pub unsafe fn create_overlay(left: i32, top: i32, width: i32, height: i32) -> HW
 
     let _ = RegisterClassW(&wnd_class);
 
+    // NOTE: implement GPU based drawing later
     let hwnd = CreateWindowExW(
         WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT,
         to_pcwstr(class_name),
@@ -86,7 +96,7 @@ pub unsafe fn create_overlay(left: i32, top: i32, width: i32, height: i32) -> HW
     hwnd
 }
 
-unsafe fn run_tracking_loop(hwnd_target: HWND) {
+unsafe fn run_tracking_loop(hwnd_target: HWND, stop: Arc<AtomicBool>) {
     let mut rect = RECT::default();
 
     if GetWindowRect(hwnd_target, &mut rect).is_err() {
@@ -102,6 +112,9 @@ unsafe fn run_tracking_loop(hwnd_target: HWND) {
     );
 
     loop {
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
         let step = std::panic::catch_unwind(AssertUnwindSafe(|| {
             if GetWindowRect(hwnd_target, &mut rect).is_ok() {
                 let width = rect.right - rect.left;
@@ -136,9 +149,9 @@ unsafe fn run_tracking_loop(hwnd_target: HWND) {
 }
 
 // TODO: error handling
-pub unsafe fn track_window(hwnd_target: HWND) {
+pub unsafe fn track_window(hwnd_target: HWND, stop: Arc<AtomicBool>) {
     let _ = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        run_tracking_loop(hwnd_target);
+        run_tracking_loop(hwnd_target, stop);
     }));
 }
 
@@ -163,7 +176,7 @@ fn get_monitor_rect(hmonitor: HMONITOR) -> Option<MonitorRect> {
 }
 
 /// Track a monitor using its HMONITOR
-pub unsafe fn track_monitor(hmonitor: HMONITOR) {
+pub unsafe fn track_monitor(hmonitor: HMONITOR, stop: Arc<AtomicBool>) {
     // Get monitor rectangle
     let rect = get_monitor_rect(hmonitor).expect("Failed to get monitor rect");
 
@@ -176,6 +189,9 @@ pub unsafe fn track_monitor(hmonitor: HMONITOR) {
     );
 
     let _ = std::panic::catch_unwind(|| loop {
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
         // Optional: refresh monitor rect in case of resolution changes
         if let Some(rect) = get_monitor_rect(hmonitor) {
             let width = rect.right - rect.left;

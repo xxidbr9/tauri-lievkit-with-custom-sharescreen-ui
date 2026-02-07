@@ -209,6 +209,7 @@ pub fn bitmap_to_base64_png(hbitmap: HBITMAP, width: i32, height: i32) -> Option
 }
 
 /// Modified bitmap_to_base64_png to include resizing
+// TODO: require resizing using shader, maybe wgsl are fine, implement GPU based drawing later.
 pub fn bitmap_to_base64_png_resized(
     hbitmap: HBITMAP,
     orig_width: i32,
@@ -217,33 +218,33 @@ pub fn bitmap_to_base64_png_resized(
     height: i32,
 ) -> Option<String> {
     unsafe {
-        let mut bmp_info = BITMAPINFO {
-            bmiHeader: BITMAPINFOHEADER {
-                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                biWidth: orig_width,
-                biHeight: -orig_height,
-                biPlanes: 1,
-                biBitCount: 32,
-                biCompression: BI_RGB.0 as u32,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
+        // let mut bmp_info = BITMAPINFO {
+        //     bmiHeader: BITMAPINFOHEADER {
+        //         biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+        //         biWidth: orig_width,
+        //         biHeight: -orig_height,
+        //         biPlanes: 1,
+        //         biBitCount: 32,
+        //         biCompression: BI_RGB.0 as u32,
+        //         ..Default::default()
+        //     },
+        //     ..Default::default()
+        // };
 
-        let hdc = CreateCompatibleDC(None);
+        // let hdc = CreateCompatibleDC(None);
         let mut pixels: Vec<u8> = vec![0; (orig_width * orig_height * 4) as usize];
 
-        GetDIBits(
-            hdc,
-            hbitmap,
-            0,
-            orig_height as u32,
-            Some(pixels.as_mut_ptr() as *mut _),
-            &mut bmp_info,
-            DIB_RGB_COLORS,
-        );
+        // GetDIBits(
+        //     hdc,
+        //     hbitmap,
+        //     0,
+        //     orig_height as u32,
+        //     Some(pixels.as_mut_ptr() as *mut _),
+        //     &mut bmp_info,
+        //     DIB_RGB_COLORS,
+        // );
 
-        let _ = DeleteDC(hdc);
+        // let _ = DeleteDC(hdc);
 
         // Convert BGRA to RGBA for fast_image_resize
         for chunk in pixels.chunks_exact_mut(4) {

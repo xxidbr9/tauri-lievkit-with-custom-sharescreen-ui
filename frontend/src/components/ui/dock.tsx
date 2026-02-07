@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import { motion, Variants } from "motion/react";
-import React, { Children, cloneElement, useRef } from "react";
+import React, { useRef } from "react";
 
 type DockItemProps = {
   className?: string;

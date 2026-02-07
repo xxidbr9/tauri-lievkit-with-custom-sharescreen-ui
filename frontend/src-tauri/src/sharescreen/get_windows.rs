@@ -1,4 +1,11 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread,
+    time::Duration,
+};
 
 use crate::sharescreen::{
     capturer::{capture_app_window, capture_monitor_display, get_window_icon},
@@ -9,16 +16,20 @@ use dashmap::DashMap;
 use rayon::prelude::*;
 use tauri::{AppHandle, Emitter, Window};
 use windows::Win32::{
-    Foundation::{HWND, LPARAM, RECT},
+    Foundation::{CloseHandle, HANDLE, HWND, LPARAM, RECT, WAIT_OBJECT_0},
     Graphics::Gdi::{
         EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO, MONITORINFOEXW,
     },
+    System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION},
     UI::WindowsAndMessaging::*,
 };
 use windows_core::BOOL;
 
 // Global mutable to store the current Tauri window handle
 static mut MAIN_HWND: HWND = HWND(std::ptr::null_mut());
+static mut SHARE_SCREEN_POPUP_HWND: HWND = HWND(std::ptr::null_mut());
+
+// TODO: make this on AppState level
 lazy_static::lazy_static! {
     static ref STREAM_REGISTRY: Arc<DashMap<String, Arc<std::sync::atomic::AtomicBool>>> =
         Arc::new(DashMap::new());
@@ -77,6 +88,7 @@ unsafe extern "system" fn enum_windows_callback(hwnd: HWND, lparam: LPARAM) -> B
                 && class_str != "CEF-OSC-WIDGET"
                 && title_str != "Program Manager"
                 && hwnd != MAIN_HWND
+                && hwnd != SHARE_SCREEN_POPUP_HWND
                 && intersects_any_monitor;
 
             windows.push(DisplayInfo {
@@ -257,7 +269,7 @@ pub fn stream_list(window: Window, app: AppHandle, fps: Option<u64>) {
             ticker.tick().await;
 
             // Check stop flag
-            if should_stop.load(std::sync::atomic::Ordering::Relaxed) {
+            if should_stop.load(Ordering::Relaxed) {
                 break;
             }
 
@@ -287,6 +299,7 @@ pub fn stream_list(window: Window, app: AppHandle, fps: Option<u64>) {
                         title: title.clone(),
                         // thumbnail: capture_app_window(hwnd, 320, 180).unwrap_or_default(),
                         thumbnail: "".to_string(),
+                        // TODO: handle cache icon
                         icon: get_window_icon(hwnd),
                         // icon: None,
                         source_type: "window".to_string(),
@@ -322,24 +335,12 @@ pub fn stream_list(window: Window, app: AppHandle, fps: Option<u64>) {
 
             let sources: Vec<CaptureSource> = [window_sources, monitor_sources].concat();
 
-            // let frame_time = interval_duration.as_millis() as i32;
-            // let fps_actual = if frame_time > 0 { 1000 / frame_time } else { 0 };
-
             let update = SourcesUpdate {
                 sources,
                 fps: fps as i32,
             };
 
             let _ = app.emit("share-screen-list", &update);
-
-            // DEBUG FPS
-            // let _ = app.emit("debug-stream-fps", &elapsed);
-
-            // let elapsed_remaining = start.elapsed();
-            // let remaining = interval_duration
-            //     .checked_sub(elapsed_remaining)
-            //     .unwrap_or_default();
-            // std::thread::sleep(remaining);
         }
 
         // Cleanup
@@ -352,17 +353,75 @@ pub fn close_stream_list() {
     let stream_id = STREAM_ID.to_string();
 
     if let Some(entry) = STREAM_REGISTRY.get(&stream_id) {
-        entry.store(true, std::sync::atomic::Ordering::Relaxed);
+        entry.store(true, Ordering::Relaxed);
     }
 }
 
+// ============== Share Screen Popup Window
+unsafe fn is_process_alive(hwnd: HWND) -> bool {
+    let mut pid: u32 = 0;
+    GetWindowThreadProcessId(hwnd, Some(&mut pid));
+    if pid == 0 {
+        return false;
+    }
+
+    let handle: HANDLE = match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+        Ok(h) => h,
+        Err(_) => return false,
+    };
+
+    let status = WaitForSingleObject(handle, 0);
+    let _ = CloseHandle(handle);
+
+    status != WAIT_OBJECT_0 // WAIT_OBJECT_0 means process exited
+}
+
+pub unsafe fn watchdog_loop(hwnd: HWND, stop: Arc<AtomicBool>) {
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+
+        let alive_window: BOOL = IsWindow(Some(hwnd));
+        if !alive_window.as_bool() {
+            break;
+        }
+
+        // optional visibility check
+        if !IsWindowVisible(hwnd).as_bool() {
+            break;
+        }
+
+        // optional process check (stronger)
+        if !is_process_alive(hwnd) {
+            break;
+        }
+
+        thread::sleep(Duration::from_millis(200));
+    }
+
+    // signal tracker to stop
+    stop.store(true, Ordering::Relaxed);
+}
+// TODO: make this on AppState level
+lazy_static::lazy_static! {
+    static ref SHARE_SCREEN_STREAM_REGISTRY: Arc<DashMap<String, Arc<std::sync::atomic::AtomicBool>>> =
+        Arc::new(DashMap::new());
+}
+const SHARE_SCREEN_STREAM_ID: &str = "capture_stream";
 #[tauri::command]
-pub fn get_list(window: Window) {
+pub fn start_share_screen(window: Window) {
     let tauri_hwnd = window.hwnd().expect("Failed to get HWND");
 
+    // TODO: this is use on share screen popup window, need to change it later
     unsafe {
         MAIN_HWND = tauri_hwnd;
     }
+
+    // Create stop flag
+    let stream_id = SHARE_SCREEN_STREAM_ID.to_string();
+    let should_stop_share_screen = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    SHARE_SCREEN_STREAM_REGISTRY.insert(stream_id.clone(), should_stop_share_screen.clone());
 
     // TODO: get rect size
     println!("=== MONITORS ===");
@@ -373,11 +432,12 @@ pub fn get_list(window: Window) {
 
     // TODO: draw full screen
     // NOTE: this track run not on main thread
+    let stop_flag_window = should_stop_share_screen.clone();
     std::thread::spawn(|| unsafe {
         let monitors = get_monitors();
         if let Some((_, hmonitor)) = monitors.get(0) {
             if !hmonitor.is_invalid() {
-                draw_overlay::track_monitor(*hmonitor);
+                draw_overlay::track_monitor(*hmonitor, stop_flag_window);
             } else {
                 eprintln!("Invalid monitor handle, skipping overlay.");
             }
@@ -396,20 +456,20 @@ pub fn get_list(window: Window) {
         );
     }
 
-    for (idx, win) in windows.iter().enumerate() {
-        println!(
-            "Window {}: \"{}\" | Class: {} | Handle: {} | Capturable: {} | Rect: ({},{}) {}x{}",
-            idx + 1,
-            win.title,
-            win.class_name,
-            win.handle,
-            win.is_capturable,
-            win.rect.left,
-            win.rect.top,
-            win.rect.right - win.rect.left,
-            win.rect.bottom - win.rect.top
-        );
-    }
+    // for (idx, win) in windows.iter().enumerate() {
+    //     println!(
+    //         "Window {}: \"{}\" | Class: {} | Handle: {} | Capturable: {} | Rect: ({},{}) {}x{}",
+    //         idx + 1,
+    //         win.title,
+    //         win.class_name,
+    //         win.handle,
+    //         win.is_capturable,
+    //         win.rect.left,
+    //         win.rect.top,
+    //         win.rect.right - win.rect.left,
+    //         win.rect.bottom - win.rect.top
+    //     );
+    // }
 
     println!("\n=== CAPTURABLE WINDOWS ONLY ===");
     let capturable: Vec<_> = windows.iter().filter(|w| w.is_capturable).collect();
@@ -432,14 +492,29 @@ pub fn get_list(window: Window) {
         .map(|w| w.hwnd.0 as isize)
         .collect();
     let hwnd_to_track = capturable_handles.get(0).copied();
+    let stop_flag_window = should_stop_share_screen.clone();
     std::thread::spawn(move || unsafe {
         if let Some(handle) = hwnd_to_track {
             let hwnd = HWND(handle as *mut _);
-            draw_overlay::track_window(hwnd);
+            let stop = stop_flag_window.clone();
+            std::thread::spawn(move || {
+                // TODO: add watch dog for make sure if the window is still valid / active
+                watchdog_loop(HWND(handle as *mut _), stop);
+            });
+            draw_overlay::track_window(hwnd, stop_flag_window);
         }
     });
 
     // unsafe {
     //     draw_overlay::track_window(capturable[0].hwnd);
     // }
+}
+
+#[tauri::command]
+pub fn close_share_screen() {
+    let stream_id = SHARE_SCREEN_STREAM_ID.to_string();
+
+    if let Some(entry) = SHARE_SCREEN_STREAM_REGISTRY.get(&stream_id) {
+        entry.store(true, Ordering::Relaxed);
+    }
 }

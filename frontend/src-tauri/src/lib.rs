@@ -10,6 +10,7 @@ use std::sync::Mutex;
 
 mod app_window;
 mod dto;
+mod share_screen;
 mod sharescreen;
 mod tray;
 
@@ -50,7 +51,17 @@ pub fn run() {
             sharescreen::get_windows::stream_list,
             sharescreen::get_windows::close_stream_list,
             risk_command,
-            panic_test
+            panic_test,
+            // SHARE SCREEN FUNCTIONALITY
+            share_screen::command::get_monitors,
+            share_screen::command::get_windows,
+            share_screen::command::get_monitor_by_id,
+            share_screen::command::get_window_by_id,
+            share_screen::command::start_monitor_preview,
+            share_screen::command::start_window_preview,
+            share_screen::command::stop_preview,
+            share_screen::command::get_preview_offer,
+            share_screen::command::accept_preview_answer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

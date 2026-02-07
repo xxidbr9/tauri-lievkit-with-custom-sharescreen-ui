@@ -1,7 +1,7 @@
 use std::{
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     thread,
     time::Duration,
@@ -20,7 +20,7 @@ use windows::Win32::{
     Graphics::Gdi::{
         EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO, MONITORINFOEXW,
     },
-    System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION},
+    System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, WaitForSingleObject},
     UI::WindowsAndMessaging::*,
 };
 use windows_core::BOOL;
@@ -114,20 +114,22 @@ fn get_monitor_rects() -> Vec<MonitorRect> {
         _: *mut RECT,
         lparam: LPARAM,
     ) -> BOOL {
-        let rects = &mut *(lparam.0 as *mut Vec<MonitorRect>);
-        let mut info = MONITORINFO {
-            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        if GetMonitorInfoW(hmonitor, &mut info).as_bool() {
-            rects.push(MonitorRect {
-                left: info.rcMonitor.left,
-                top: info.rcMonitor.top,
-                right: info.rcMonitor.right,
-                bottom: info.rcMonitor.bottom,
-            });
+        unsafe {
+            let rects = &mut *(lparam.0 as *mut Vec<MonitorRect>);
+            let mut info = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            if GetMonitorInfoW(hmonitor, &mut info).as_bool() {
+                rects.push(MonitorRect {
+                    left: info.rcMonitor.left,
+                    top: info.rcMonitor.top,
+                    right: info.rcMonitor.right,
+                    bottom: info.rcMonitor.bottom,
+                });
+            }
+            BOOL(1)
         }
-        BOOL(1)
     }
 
     unsafe {
@@ -199,38 +201,40 @@ fn get_monitors_info() -> Vec<MonitorInfo> {
         _: *mut RECT,
         lparam: LPARAM,
     ) -> BOOL {
-        let monitors = &mut *(lparam.0 as *mut Vec<MonitorInfo>);
+        unsafe {
+            let monitors = &mut *(lparam.0 as *mut Vec<MonitorInfo>);
 
-        let mut info = MONITORINFOEXW {
-            monitorInfo: MONITORINFO {
-                cbSize: std::mem::size_of::<MONITORINFOEXW>() as u32,
-                ..Default::default()
-            },
-            szDevice: [0; 32],
-        };
-
-        if GetMonitorInfoW(
-            hmonitor,
-            &mut info.monitorInfo as *mut _ as *mut MONITORINFO,
-        )
-        .as_bool()
-        {
-            let device_name = String::from_utf16_lossy(
-                &info.szDevice[..info.szDevice.iter().position(|&c| c == 0).unwrap_or(0)],
-            );
-            monitors.push(MonitorInfo {
-                hmonitor,
-                device_name,
-                rect: MonitorRect {
-                    left: info.monitorInfo.rcMonitor.left,
-                    top: info.monitorInfo.rcMonitor.top,
-                    right: info.monitorInfo.rcMonitor.right,
-                    bottom: info.monitorInfo.rcMonitor.bottom,
+            let mut info = MONITORINFOEXW {
+                monitorInfo: MONITORINFO {
+                    cbSize: std::mem::size_of::<MONITORINFOEXW>() as u32,
+                    ..Default::default()
                 },
-            });
-        }
+                szDevice: [0; 32],
+            };
 
-        BOOL(1)
+            if GetMonitorInfoW(
+                hmonitor,
+                &mut info.monitorInfo as *mut _ as *mut MONITORINFO,
+            )
+            .as_bool()
+            {
+                let device_name = String::from_utf16_lossy(
+                    &info.szDevice[..info.szDevice.iter().position(|&c| c == 0).unwrap_or(0)],
+                );
+                monitors.push(MonitorInfo {
+                    hmonitor,
+                    device_name,
+                    rect: MonitorRect {
+                        left: info.monitorInfo.rcMonitor.left,
+                        top: info.monitorInfo.rcMonitor.top,
+                        right: info.monitorInfo.rcMonitor.right,
+                        bottom: info.monitorInfo.rcMonitor.bottom,
+                    },
+                });
+            }
+
+            BOOL(1)
+        }
     }
 
     unsafe {
@@ -250,7 +254,7 @@ pub fn stream_list(window: Window, app: AppHandle, fps: Option<u64>) {
     let tauri_hwnd = window.hwnd().expect("Failed to get HWND");
 
     unsafe {
-        MAIN_HWND = tauri_hwnd;
+        MAIN_HWND = HWND(tauri_hwnd.0 as *mut _);
     }
 
     let fps = fps.unwrap_or(180);
@@ -415,7 +419,7 @@ pub fn start_share_screen(window: Window) {
 
     // TODO: this is use on share screen popup window, need to change it later
     unsafe {
-        MAIN_HWND = tauri_hwnd;
+        MAIN_HWND = HWND(tauri_hwnd.0 as *mut _);
     }
 
     // Create stop flag

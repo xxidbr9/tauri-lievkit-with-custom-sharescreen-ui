@@ -80,6 +80,24 @@ const closeStreamList = async () => {
   await invoke("close_stream_list");
 };
 
+const getListMonitors = async () => {
+  const result = await invoke("get_monitors", {
+    fps: 30,
+    width: 1920,
+    height: 1080,
+  });
+  console.log(result);
+};
+
+const getListWindows = async () => {
+  const result = await invoke("get_windows", {
+    fps: 30,
+    width: 1920,
+    height: 1080,
+  });
+  console.log(result);
+};
+
 export const SmallSizeMeetingLayout = () => {
   useEffect(() => {
     let frameCount = 0;
@@ -168,6 +186,22 @@ export const SmallSizeMeetingLayout = () => {
               }
             />
             <TooltipContent>Close Screen Share</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button onClick={getListMonitors}>Get List Monitors</Button>
+              }
+            />
+            <TooltipContent>Get List Monitors</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button onClick={getListWindows}>Get List Windows</Button>
+              }
+            />
+            <TooltipContent>Get List Windows</TooltipContent>
           </Tooltip>
         </div>
       </FramePanel>

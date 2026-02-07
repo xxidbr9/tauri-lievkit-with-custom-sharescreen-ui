@@ -14,10 +14,10 @@ pub fn setup(app: &tauri::App) {
         // Enable autostart
         let _ = autostart_manager.enable();
         // Check enable state
-        println!(
-            "registered for autostart? {}",
-            autostart_manager.is_enabled().unwrap()
-        );
+        // println!(
+        //     "registered for autostart? {}",
+        //     autostart_manager.is_enabled().unwrap()
+        // );
         // // Disable autostart
         // let _ = autostart_manager.disable();
     }

@@ -1,8 +1,8 @@
 use anyhow::Result;
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 use fast_image_resize::images::Image;
 use fast_image_resize::{IntoImageView, PixelType, Resizer};
-use image::{codecs::jpeg::JpegEncoder, ImageBuffer, RgbaImage};
+use image::{ImageBuffer, RgbaImage, codecs::jpeg::JpegEncoder};
 use windows::Win32::{
     Foundation::{HWND, LPARAM, RECT, WPARAM},
     Graphics::Gdi::*,
@@ -11,7 +11,7 @@ use windows::Win32::{
 use windows_core::BOOL;
 
 #[link(name = "user32")]
-extern "system" {
+unsafe extern "system" {
     fn PrintWindow(hwnd: HWND, hdcBlt: HDC, nFlags: u32) -> BOOL;
 }
 

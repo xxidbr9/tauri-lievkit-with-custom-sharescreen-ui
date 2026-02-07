@@ -437,9 +437,6 @@ unsafe fn create_winrt_device(device: &ID3D11Device) -> Result<IDirect3DDevice> 
             .map_err(|e| CaptureError::PlatformError(e.to_string()))?;
 
         Ok(d3d_device)
-
-        // CreateDirect3D11DeviceFromDXGIDevice(&dxgi_device)
-        //     .map_err(|e| CaptureError::PlatformError(e.to_string()))
     }
 }
 

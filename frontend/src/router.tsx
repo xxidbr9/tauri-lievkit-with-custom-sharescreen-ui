@@ -6,7 +6,7 @@ import {
   Outlet,
 } from "@tanstack/react-router";
 
-import { SmallSizeMeetingLayout } from "@/features/meeting";
+import { DummiesLayout } from "@/features/meeting";
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -26,7 +26,7 @@ const indexRoute = createRoute({
 const meetingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/meeting",
-  component: () => <SmallSizeMeetingLayout />,
+  component: () => <DummiesLayout />,
 });
 
 const routeTree = rootRoute.addChildren([

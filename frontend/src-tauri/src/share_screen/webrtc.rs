@@ -2,11 +2,14 @@
 use crate::share_screen::dto::{CaptureError, PreviewOffer, Result};
 // use std::collections::HashMap;
 use dashmap::DashMap;
+use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
-use webrtc::api::APIBuilder;
+use webrtc::api::{API, APIBuilder};
 use webrtc::ice_transport::ice_server::RTCIceServer;
+use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
@@ -14,18 +17,19 @@ use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSampl
 // use webrtc::track::track_local::TrackLocal;
 
 pub struct PreviewConnection {
-    peer_connection: Arc<webrtc::peer_connection::RTCPeerConnection>,
+    peer_conn: Option<Arc<RTCPeerConnection>>,
     track: Arc<TrackLocalStaticSample>,
 }
 
 pub struct WebRTCServer {
-    preview_connections: DashMap<String, PreviewConnection>,
+    preview_connections: Mutex<HashMap<String, PreviewConnection>>,
+    // api: Arc<API>,
 }
 
 impl WebRTCServer {
     pub fn new() -> Self {
         Self {
-            preview_connections: DashMap::new(),
+            preview_connections: Mutex::new(HashMap::new()),
         }
     }
 
@@ -34,6 +38,7 @@ impl WebRTCServer {
         id: &str,
         mut frame_rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
     ) -> Result<()> {
+        println!("CREATE ID {:?}", id);
         let track = Arc::new(TrackLocalStaticSample::new(
             RTCRtpCodecCapability {
                 mime_type: "video/VP8".to_owned(),
@@ -55,11 +60,12 @@ impl WebRTCServer {
             }
         });
 
+        let mut map = self.preview_connections.lock().await;
         // Store track (PC will be created on get_preview_offer)
-        self.preview_connections.insert(
+        map.insert(
             id.to_string(),
             PreviewConnection {
-                peer_connection: Arc::new(unsafe { std::mem::zeroed() }),
+                peer_conn: None,
                 track,
             },
         );
@@ -85,7 +91,6 @@ impl WebRTCServer {
         let config = RTCConfiguration {
             ice_servers: vec![RTCIceServer {
                 // TODO: handle this to be using livekit TURN/STUN
-                urls: vec!["".to_owned()],
                 ..Default::default()
             }],
             ..Default::default()
@@ -97,17 +102,21 @@ impl WebRTCServer {
                 .map_err(|e| CaptureError::WebRTCError(e.to_string()))?,
         );
 
-        let connection = self
-            .preview_connections
-            .get(id)
+        let mut map = self.preview_connections.lock().await;
+
+        println!("BEFORE GET FROM MUT");
+        let connection = map
+            .get_mut(id)
             .ok_or_else(|| CaptureError::SourceNotFound(id.to_string()))?;
 
         let track = connection.track.clone();
-
         peer_connection
             .add_track(track)
             .await
             .map_err(|e| CaptureError::WebRTCError(e.to_string()))?;
+
+        connection.peer_conn = Some(peer_connection.clone());
+        drop(map);
 
         let offer = peer_connection
             .create_offer(None)
@@ -119,27 +128,35 @@ impl WebRTCServer {
             .await
             .map_err(|e| CaptureError::WebRTCError(e.to_string()))?;
 
-        if let Some(mut conn) = self.preview_connections.get_mut(id) {
-            conn.peer_connection = peer_connection;
-        }
-
-        Ok(PreviewOffer {
+        println!("get_preview_offer id {}", id);
+        let preview_offer = PreviewOffer {
             id: id.to_string(),
             sdp: offer.sdp,
-        })
+        };
+
+        Ok(preview_offer)
     }
 
-    pub async fn accept_preview_answer(&mut self, id: &str, sdp: String) -> Result<()> {
-        let connection = self
-            .preview_connections
-            .get(id)
-            .ok_or_else(|| CaptureError::SourceNotFound(id.to_string()))?;
+    pub async fn accept_preview_answer(&self, id: &str, sdp: String) -> Result<()> {
+        // Lock the map to get the connection
+        let peer_connection = {
+            let map = self.preview_connections.lock().await;
+            let connection = map
+                .get(id)
+                .ok_or_else(|| CaptureError::SourceNotFound(id.to_string()))?;
+
+            // Clone the Arc so we can drop the lock before awaiting
+            connection
+                .peer_conn
+                .as_ref()
+                .ok_or_else(|| CaptureError::SourceNotFound(id.to_string()))?
+                .clone()
+        }; // lock dropped here
 
         let answer = RTCSessionDescription::answer(sdp)
             .map_err(|e| CaptureError::WebRTCError(e.to_string()))?;
 
-        connection
-            .peer_connection
+        peer_connection
             .set_remote_description(answer)
             .await
             .map_err(|e| CaptureError::WebRTCError(e.to_string()))?;
@@ -147,22 +164,28 @@ impl WebRTCServer {
         Ok(())
     }
 
-    pub async fn close_preview(&mut self, id: &str) {
-        if let Some((_key, connection)) = self.preview_connections.remove(id) {
-            let _ = connection.peer_connection.close().await;
+    pub async fn close_preview(&self, id: &str) {
+        let connection = {
+            let mut map = self.preview_connections.lock().await;
+            map.remove(id)
+        };
+
+        if let Some(connection) = connection {
+            if let Some(pc) = connection.peer_conn {
+                let _ = pc.close().await;
+            }
         }
     }
 
-    pub async fn close_all_previews(&mut self) {
-        let keys: Vec<_> = self
-            .preview_connections
-            .iter()
-            .map(|e| e.key().clone())
-            .collect();
+    pub async fn close_all_previews(&self) {
+        let connections: Vec<PreviewConnection> = {
+            let mut map = self.preview_connections.lock().await;
+            map.drain().map(|(_, conn)| conn).collect()
+        };
 
-        for k in keys {
-            if let Some((_, conn)) = self.preview_connections.remove(&k) {
-                let _ = conn.peer_connection.close().await;
+        for connection in connections {
+            if let Some(pc) = connection.peer_conn {
+                let _ = pc.close().await;
             }
         }
     }

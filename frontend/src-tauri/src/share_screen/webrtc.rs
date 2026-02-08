@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 use webrtc::api::APIBuilder;
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
-use webrtc::ice_transport::ice_server::RTCIceServer;
+use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 use webrtc::media::Sample;
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::peer_connection::configuration::RTCConfiguration;
@@ -40,7 +40,6 @@ impl WebRTCServer {
         id: &str,
         mut frame_rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
     ) -> Result<()> {
-        println!("CREATE ID {:?}", id);
         let track = Arc::new(TrackLocalStaticSample::new(
             RTCRtpCodecCapability {
                 mime_type: "video/VP8".to_owned(),
@@ -62,18 +61,9 @@ impl WebRTCServer {
             while let Some(vp8_data) = frame_rx.recv().await {
                 frame_count += 1;
 
-                if frame_count % 30 == 0 {
-                    println!(
-                        "[WebRTC] Sending VP8 frame {} for {}, size: {} bytes",
-                        frame_count,
-                        id_clone,
-                        vp8_data.len()
-                    );
-                }
-
                 let sample = Sample {
                     data: vp8_data.into(),
-                    duration: std::time::Duration::from_millis(100),
+                    duration: std::time::Duration::from_millis(1000 / 24),
                     timestamp: SystemTime::now(),
                     packet_timestamp: 0,
                     prev_dropped_packets: 0,
@@ -85,8 +75,6 @@ impl WebRTCServer {
                         "[WebRTC] Failed to write VP8 sample for {}: {}",
                         id_clone, e
                     );
-                } else if frame_count % 30 == 0 {
-                    println!("[WebRTC] ✓ VP8 frame {} written successfully", frame_count);
                 }
             }
         });
@@ -120,10 +108,6 @@ impl WebRTCServer {
             .build();
 
         let config = RTCConfiguration {
-            ice_servers: vec![RTCIceServer {
-                // TODO: handle this to be using livekit TURN/STUN
-                ..Default::default()
-            }],
             ..Default::default()
         };
 
@@ -133,21 +117,27 @@ impl WebRTCServer {
                 .map_err(|e| CaptureError::WebRTCError(e.to_string()))?,
         );
 
-        let mut map = self.preview_connections.lock().await;
+        let track = {
+            let mut map = self.preview_connections.lock().await;
+            let conn = map
+                .get_mut(id)
+                .ok_or_else(|| CaptureError::SourceNotFound(id.to_string()))?;
 
-        println!("BEFORE GET FROM MUT");
-        let connection = map
-            .get_mut(id)
-            .ok_or_else(|| CaptureError::SourceNotFound(id.to_string()))?;
+            let track = conn.track.clone();
+            track
+        };
 
-        let track = connection.track.clone();
         peer_connection
             .add_track(track)
             .await
             .map_err(|e| CaptureError::WebRTCError(e.to_string()))?;
 
-        connection.peer_conn = Some(peer_connection.clone());
-        drop(map);
+        {
+            let mut map = self.preview_connections.lock().await;
+            if let Some(conn) = map.get_mut(id) {
+                conn.peer_conn = Some(peer_connection.clone());
+            }
+        }
 
         let offer = peer_connection
             .create_offer(None)
@@ -159,7 +149,6 @@ impl WebRTCServer {
             .await
             .map_err(|e| CaptureError::WebRTCError(e.to_string()))?;
 
-        println!("get_preview_offer id {}", id);
         let preview_offer = PreviewOffer {
             id: id.to_string(),
             sdp: offer.sdp,
@@ -219,5 +208,36 @@ impl WebRTCServer {
                 let _ = pc.close().await;
             }
         }
+    }
+
+    pub async fn add_preview_ice_candidate(
+        &self,
+        id: String,
+        candidate: String,
+        sdp_mid: Option<String>,
+        sdp_mline_index: Option<u16>,
+    ) -> Result<()> {
+        let pc = {
+            let map = self.preview_connections.lock().await;
+            map.get(&id)
+                .ok_or(CaptureError::SourceNotFound(id.clone()))?
+                .peer_conn
+                .as_ref()
+                .ok_or(CaptureError::SourceNotFound(id.clone()))?
+                .clone()
+        };
+
+        let ice_candidate = RTCIceCandidateInit {
+            candidate,
+            sdp_mid,
+            sdp_mline_index,
+            ..Default::default()
+        };
+
+        pc.add_ice_candidate(ice_candidate)
+            .await
+            .map_err(|e| CaptureError::WebRTCError(e.to_string()))?;
+
+        Ok(())
     }
 }

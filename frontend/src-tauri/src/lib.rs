@@ -62,6 +62,7 @@ pub fn run() {
             share_screen::command::stop_preview,
             share_screen::command::get_preview_offer,
             share_screen::command::accept_preview_answer,
+            share_screen::command::add_preview_ice_candidate
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

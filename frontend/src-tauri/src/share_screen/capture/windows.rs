@@ -1,6 +1,7 @@
 use crate::share_screen::dto::{
     AudioDevice, CaptureConfig, CaptureError, CaptureSourceType, Result, WindowInfo,
 };
+use std::mem::ManuallyDrop;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use vpx_encode::{Config as VpxConfig, Encoder, VideoCodecId};
@@ -556,16 +557,17 @@ pub async fn start_capture_internal(
                                     let data = packet.data.to_vec();
 
                                     // Send to WebRTC
-                                    match video_tx.blocking_send(data) {
-                                        Ok(_) => {
-                                            if frame_num % 30 == 0 {
-                                                println!("[Encode] ✓ Sent VP8 packet to WebRTC");
-                                            }
-                                        }
-                                        Err(e) => {
-                                            eprintln!("[Encode] ✗ Failed to send to WebRTC: {}", e);
-                                        }
-                                    }
+                                    // match video_tx.blocking_send(data) {
+                                    //     Ok(_) => {
+                                    //         if frame_num % 30 == 0 {
+                                    //             println!("[Encode] ✓ Sent VP8 packet to WebRTC");
+                                    //         }
+                                    //     }
+                                    //     Err(e) => {
+                                    //         eprintln!("[Encode] ✗ Failed to send to WebRTC: {}", e);
+                                    //     }
+                                    // }
+                                    video_tx.blocking_send(data).unwrap();
                                 }
                             }
                             Err(e) => {
@@ -660,7 +662,7 @@ unsafe fn create_capture_item_monitor(hmonitor: isize) -> Result<GraphicsCapture
 unsafe fn resize_texture_gpu(
     device: &ID3D11Device,
     context: &ID3D11DeviceContext,
-    src: &ID3D11Texture2D,
+    texture: &ID3D11Texture2D,
     width: u32,
     height: u32,
 ) -> Result<ID3D11Texture2D> {
@@ -694,11 +696,98 @@ unsafe fn resize_texture_gpu(
         //     .QueryInterface(&mut video_device)
         //     .map_err(|e| CaptureError::PlatformError(e.to_string()))?;
 
+        // let video_device: ID3D11VideoDevice = device
+        //     .cast()
+        //     .map_err(|e| CaptureError::PlatformError(e.to_string()))?;
+
+        // TODO: Implementation video resize processor...
         let video_device: ID3D11VideoDevice = device
             .cast()
             .map_err(|e| CaptureError::PlatformError(e.to_string()))?;
+        let video_context: ID3D11VideoContext = context
+            .cast()
+            .map_err(|e| CaptureError::PlatformError(e.to_string()))?;
 
-        // TODO: Implementation video resize processor...
+        let mut src_desc = D3D11_TEXTURE2D_DESC::default();
+        texture.GetDesc(&mut src_desc);
+
+        let vp_desc = D3D11_VIDEO_PROCESSOR_CONTENT_DESC {
+            InputFrameFormat: D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
+            InputWidth: src_desc.Width,
+            InputHeight: src_desc.Height,
+            OutputWidth: width,
+            OutputHeight: height,
+            Usage: D3D11_VIDEO_USAGE_PLAYBACK_NORMAL,
+            ..Default::default()
+        };
+
+        let enumerator: ID3D11VideoProcessorEnumerator = video_device
+            .CreateVideoProcessorEnumerator(&vp_desc)
+            .map_err(|e| CaptureError::PlatformError(e.to_string()))?;
+
+        let processor = video_device
+            .CreateVideoProcessor(&enumerator, 0)
+            .map_err(|e| CaptureError::PlatformError(e.to_string()))?;
+
+        let mut in_view: Option<ID3D11VideoProcessorInputView> = None;
+        video_device
+            .CreateVideoProcessorInputView(
+                texture,
+                &enumerator,
+                &D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC {
+                    ViewDimension: D3D11_VPIV_DIMENSION_TEXTURE2D,
+                    ..Default::default()
+                },
+                Some(&mut in_view),
+            )
+            .map_err(|e| CaptureError::PlatformError(e.to_string()))?;
+
+        let mut out_view: Option<ID3D11VideoProcessorOutputView> = None;
+        video_device
+            .CreateVideoProcessorOutputView(
+                &dst,
+                &enumerator,
+                &D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC {
+                    ViewDimension: D3D11_VPOV_DIMENSION_TEXTURE2D,
+                    ..Default::default()
+                },
+                Some(&mut out_view),
+            )
+            .map_err(|e| CaptureError::PlatformError(e.to_string()))?;
+
+        // --------------------------------------------------
+        // Configure scaling rectangles
+        // --------------------------------------------------
+        let src_rect = RECT {
+            left: 0,
+            top: 0,
+            right: src_desc.Width as i32,
+            bottom: src_desc.Height as i32,
+        };
+
+        let dst_rect = RECT {
+            left: 0,
+            top: 0,
+            right: width as i32,
+            bottom: height as i32,
+        };
+
+        video_context.VideoProcessorSetStreamSourceRect(&processor, 0, true, Some(&src_rect));
+        video_context.VideoProcessorSetStreamDestRect(&processor, 0, true, Some(&dst_rect));
+
+        // --------------------------------------------------
+        // Perform scaling (GPU)
+        // --------------------------------------------------
+        let stream = D3D11_VIDEO_PROCESSOR_STREAM {
+            Enable: true.into(),
+            pInputSurface: ManuallyDrop::new(in_view),
+            ..Default::default()
+        };
+
+        let out_view = out_view.unwrap();
+        video_context
+            .VideoProcessorBlt(&processor, &out_view, 0, &[stream])
+            .map_err(|e| CaptureError::PlatformError(e.to_string()))?;
 
         Ok(dst)
     }

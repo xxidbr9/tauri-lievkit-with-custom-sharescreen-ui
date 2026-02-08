@@ -174,7 +174,13 @@ export const useScreenCapture = () => {
         console.log(`[WebRTC] Setting up connection for ${id}`);
 
         // Create peer connection
-        const pc = new RTCPeerConnection();
+        const pc = new RTCPeerConnection({
+          iceServers: [
+            {
+              urls: ["stun:stun.l.google.com:19302"],
+            },
+          ],
+        });
 
         // Debug: Log all events
         pc.ontrack = (event) => {
@@ -214,12 +220,18 @@ export const useScreenCapture = () => {
           }
         };
 
-        pc.onicecandidate = (event) => {
+        pc.onicecandidate = async (event) => {
           if (event.candidate) {
             console.log(
               `[WebRTC] ICE candidate for ${id}:`,
               event.candidate.candidate,
             );
+            await invoke("add_preview_ice_candidate", {
+              id,
+              candidate: event.candidate.candidate,
+              sdpMid: event.candidate.sdpMid,
+              sdpMLineIndex: event.candidate.sdpMLineIndex,
+            });
           } else {
             console.log(`[WebRTC] ICE gathering complete for ${id}`);
           }

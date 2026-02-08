@@ -166,3 +166,18 @@ pub async fn accept_preview_answer(id: String, sdp: String) -> Result<(), String
         .await
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn add_preview_ice_candidate(
+    id: String,
+    candidate: String,
+    sdp_mid: Option<String>,
+    sdp_mline_index: Option<u16>,
+) -> Result<(), String> {
+    WEBRTC_SERVER
+        .write()
+        .await
+        .add_preview_ice_candidate(id, candidate, sdp_mid, sdp_mline_index)
+        .await
+        .map_err(|e| e.to_string())
+}

@@ -3,7 +3,7 @@ use crate::share_screen::{
     capture::CaptureDevice,
     dto::{
         AudioDevice, CaptureConfig, CaptureError, CaptureSource, CaptureSourceType, CaptureStream,
-        MonitorInfo, Result,
+        Result,
     },
 };
 use base64::{Engine as _, engine::general_purpose};
@@ -148,7 +148,6 @@ impl CaptureManager {
             return Err(CaptureError::CaptureAlreadyActive(id));
         }
 
-        println!("HERE start_preview id {}", id);
         let (video_tx, video_rx) = tokio::sync::mpsc::channel(100);
 
         let video_tx_for_task = video_tx.clone();

@@ -46,7 +46,7 @@ export const DummiesLayout = () => {
     if (!windows) return;
     if (!windows.length) return;
 
-    const sources = [monitors[0]];
+    const sources = [...monitors, ...windows];
     sources.forEach(async (source) => {
       if (initializedPreviews.has(source.id)) return;
 
@@ -55,9 +55,9 @@ export const DummiesLayout = () => {
 
         // Start preview
         if (source.source_type === "monitor") {
-          await startMonitorPreview(handle, 10, 320, 180);
+          await startMonitorPreview(handle, 24, 1920, 1080);
         } else {
-          await startWindowPreview(handle, 10, 320, 180);
+          await startWindowPreview(handle, 24, 320, 180);
         }
 
         // Wait for stream

@@ -63,7 +63,7 @@ impl WebRTCServer {
 
                 let sample = Sample {
                     data: vp8_data.into(),
-                    duration: std::time::Duration::from_millis(1000 / 24),
+                    duration: std::time::Duration::from_millis(100),
                     timestamp: SystemTime::now(),
                     packet_timestamp: 0,
                     prev_dropped_packets: 0,

@@ -448,27 +448,8 @@ pub async fn start_capture_internal(
                             }
                         };
 
-                        // DEBUG: Log captured frame
-                        // if frame_num % 30 == 0 {
-                        //     println!(
-                        //         "[Capture] Captured frame {}, size: {} bytes",
-                        //         frame_num,
-                        //         bgra_bytes.len()
-                        //     );
-                        // }
-
                         // Send raw frame to encoder task
                         let _ = frame_tx.try_send((bgra_bytes, frame_num));
-                        // Ok(_) => {
-                        //     if frame_num % 30 == 0 {
-                        //         println!("[Capture] ✓ Frame {} sent to encoder", frame_num);
-                        //     }
-                        // }
-                        // Err(e) => {
-                        //     if frame_num % 100 == 0 {
-                        //         eprintln!("[Capture] Frame send error: {:?}", e);
-                        //     }
-                        // }
 
                         Ok(())
                     }));
@@ -497,76 +478,24 @@ pub async fn start_capture_internal(
         let height = config.height as usize;
 
         tokio::task::spawn_blocking(move || {
-            // println!("[Encode] Encoder task starting...");
-
             let mut encoder = match Encoder::new(encoder_config) {
-                Ok(e) => {
-                    // println!("[Encode] ✓ VP8 encoder created successfully");
-                    e
-                }
+                Ok(e) => e,
                 Err(e) => {
                     eprintln!("[Encode] ✗ Failed to create VP8 encoder: {:?}", e);
                     return;
                 }
             };
 
-            // println!("[Encode] Waiting for frames...");
-
-            // Block and process frames
             loop {
                 match frame_rx.recv() {
                     Ok((bgra_bytes, frame_num)) => {
-                        // if frame_num % 30 == 0 {
-                        //     println!(
-                        //         "[Encode] Received frame {} for encoding, size: {} bytes",
-                        //         frame_num,
-                        //         bgra_bytes.len()
-                        //     );
-                        // }
-
-                        // Convert BGRA to I420
                         let i420_data = bgra_to_i420(&bgra_bytes, width, height);
 
-                        // if frame_num % 30 == 0 {
-                        //     println!(
-                        //         "[Encode] Converted to I420, size: {} bytes",
-                        //         i420_data.len()
-                        //     );
-                        // }
-
-                        // Encode
                         match encoder.encode(frame_num as i64, &i420_data) {
                             Ok(packets) => {
-                                // if frame_num % 30 == 0 {
-                                //     println!(
-                                //         "[Encode] Encoded frame {}, got packets",
-                                //         frame_num,
-                                //         // packets.len()
-                                //     );
-                                // }
-
                                 for packet in packets {
-                                    // if frame_num % 30 == 0 {
-                                    //     println!(
-                                    //         "[Encode] Packet: {} bytes (keyframe: {})",
-                                    //         packet.data.len(),
-                                    //         packet.key
-                                    //     );
-                                    // }
-
                                     let data = packet.data.to_vec();
 
-                                    // Send to WebRTC
-                                    // match video_tx.blocking_send(data) {
-                                    //     Ok(_) => {
-                                    //         if frame_num % 30 == 0 {
-                                    //             println!("[Encode] ✓ Sent VP8 packet to WebRTC");
-                                    //         }
-                                    //     }
-                                    //     Err(e) => {
-                                    //         eprintln!("[Encode] ✗ Failed to send to WebRTC: {}", e);
-                                    //     }
-                                    // }
                                     video_tx.blocking_send(data).unwrap();
                                 }
                             }
@@ -658,7 +587,6 @@ unsafe fn create_capture_item_monitor(hmonitor: isize) -> Result<GraphicsCapture
     }
 }
 
-// TODO: handle resize texture gpu
 unsafe fn resize_texture_gpu(
     device: &ID3D11Device,
     context: &ID3D11DeviceContext,
@@ -690,17 +618,6 @@ unsafe fn resize_texture_gpu(
 
         let dst = dst.unwrap();
 
-        // Use Video Processor for GPU resize
-        // let mut video_device: Option<ID3D11VideoDevice> = None;
-        // device
-        //     .QueryInterface(&mut video_device)
-        //     .map_err(|e| CaptureError::PlatformError(e.to_string()))?;
-
-        // let video_device: ID3D11VideoDevice = device
-        //     .cast()
-        //     .map_err(|e| CaptureError::PlatformError(e.to_string()))?;
-
-        // TODO: Implementation video resize processor...
         let video_device: ID3D11VideoDevice = device
             .cast()
             .map_err(|e| CaptureError::PlatformError(e.to_string()))?;
